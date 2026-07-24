@@ -5,10 +5,18 @@ import { ErrorNotice, Loading, PageHeader } from "../components/common.tsx";
 import { Alert, AlertDescription, AlertTitle } from "../components/ui/alert.tsx";
 import { Button } from "../components/ui/button.tsx";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card.tsx";
-import { Checkbox } from "../components/ui/checkbox.tsx";
-import { Field, FieldDescription, FieldGroup, FieldLabel } from "../components/ui/field.tsx";
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+  FieldTitle,
+} from "../components/ui/field.tsx";
 import { Input } from "../components/ui/input.tsx";
+import { Switch } from "../components/ui/switch.tsx";
 import { api } from "../lib/api.ts";
+import { focusFirstInvalid, UnsavedChangesBadge, UnsavedChangesGuard } from "../lib/form-state.tsx";
 
 type TokenMode = "preserve" | "replace" | "clear";
 
@@ -35,6 +43,11 @@ export function NotificationsPage() {
   }, [query.data]);
 
   const validation = validate(enabled, baseUrl, topic, tokenMode, accessToken);
+  const dirty =
+    enabled !== query.data?.enabled ||
+    baseUrl !== query.data?.baseUrl ||
+    topic !== query.data?.topic ||
+    tokenMode !== "preserve";
   const save = useMutation({
     mutationFn: () =>
       api.updateNotificationSettings({
@@ -58,6 +71,9 @@ export function NotificationsPage() {
     mutationFn: api.testNotifications,
     onSuccess: () => toast.success("Notificación de prueba entregada"),
   });
+  useEffect(() => {
+    if (save.error) focusFirstInvalid();
+  }, [save.error]);
 
   if (query.isLoading) return <Loading label="Cargando notificaciones" />;
   if (query.isError) {
@@ -81,7 +97,10 @@ export function NotificationsPage() {
       </Alert>
       <Card>
         <CardHeader>
-          <CardTitle>Canal ntfy</CardTitle>
+          <CardTitle className="flex flex-wrap items-center gap-3">
+            Canal ntfy
+            <UnsavedChangesBadge dirty={dirty} />
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <form
@@ -89,24 +108,28 @@ export function NotificationsPage() {
             onSubmit={(event) => {
               event.preventDefault();
               if (validation === null) save.mutate();
+              else focusFirstInvalid(event.currentTarget);
             }}
           >
             <Field orientation="horizontal">
-              <Checkbox
+              <Switch
                 id={`${id}-enabled`}
                 checked={enabled}
                 onCheckedChange={setEnabled}
                 disabled={save.isPending}
+                aria-describedby={`${id}-enabled-description`}
               />
               <div>
-                <FieldLabel htmlFor={`${id}-enabled`}>Activar notificaciones</FieldLabel>
-                <FieldDescription>
+                <FieldLabel htmlFor={`${id}-enabled`}>
+                  Notificaciones {enabled ? "activadas" : "desactivadas"}
+                </FieldLabel>
+                <FieldDescription id={`${id}-enabled-description`}>
                   Solo se encolarán transiciones que ocurran después de activarlo.
                 </FieldDescription>
               </div>
             </Field>
             <FieldGroup>
-              <Field>
+              <Field data-invalid={validation?.field === "baseUrl"}>
                 <FieldLabel htmlFor={`${id}-url`}>URL base</FieldLabel>
                 <Input
                   id={`${id}-url`}
@@ -114,9 +137,13 @@ export function NotificationsPage() {
                   value={baseUrl}
                   onChange={(event) => setBaseUrl(event.target.value)}
                   aria-invalid={validation?.field === "baseUrl"}
+                  aria-describedby={validation?.field === "baseUrl" ? `${id}-url-error` : undefined}
                 />
+                <FieldError id={`${id}-url-error`}>
+                  {validation?.field === "baseUrl" ? validation.message : null}
+                </FieldError>
               </Field>
-              <Field>
+              <Field data-invalid={validation?.field === "topic"}>
                 <FieldLabel htmlFor={`${id}-topic`}>Topic</FieldLabel>
                 <Input
                   id={`${id}-topic`}
@@ -124,11 +151,26 @@ export function NotificationsPage() {
                   maxLength={64}
                   onChange={(event) => setTopic(event.target.value)}
                   aria-invalid={validation?.field === "topic"}
+                  aria-describedby={[
+                    `${id}-topic-description`,
+                    validation?.field === "topic" ? `${id}-topic-error` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
                 />
-                <FieldDescription>1–64 letras, números, guiones o guiones bajos.</FieldDescription>
+                <FieldDescription id={`${id}-topic-description`}>
+                  1–64 letras, números, guiones o guiones bajos.
+                </FieldDescription>
+                <FieldError id={`${id}-topic-error`}>
+                  {validation?.field === "topic" ? validation.message : null}
+                </FieldError>
               </Field>
-              <Field>
-                <FieldLabel htmlFor={`${id}-token`}>Token Bearer opcional</FieldLabel>
+              <Field data-invalid={validation?.field === "accessToken"}>
+                {settings.accessTokenConfigured && tokenMode !== "replace" ? (
+                  <FieldTitle>Token Bearer opcional</FieldTitle>
+                ) : (
+                  <FieldLabel htmlFor={`${id}-token`}>Token Bearer opcional</FieldLabel>
+                )}
                 {settings.accessTokenConfigured && tokenMode === "preserve" ? (
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="rounded-md border px-3 py-2 font-mono text-sm">
@@ -164,6 +206,9 @@ export function NotificationsPage() {
                         setAccessToken(event.target.value);
                       }}
                       aria-invalid={validation?.field === "accessToken"}
+                      aria-describedby={
+                        validation?.field === "accessToken" ? `${id}-token-error` : undefined
+                      }
                     />
                     {settings.accessTokenConfigured ? (
                       <Button
@@ -179,17 +224,15 @@ export function NotificationsPage() {
                     ) : null}
                   </div>
                 )}
+                <FieldError id={`${id}-token-error`}>
+                  {validation?.field === "accessToken" ? validation.message : null}
+                </FieldError>
               </Field>
             </FieldGroup>
-            {validation !== null ? (
-              <p role="alert" className="text-sm text-destructive">
-                {validation.message}
-              </p>
-            ) : null}
             {save.isError ? <ErrorNotice error={save.error} /> : null}
             {test.isError ? <ErrorNotice error={test.error} /> : null}
             <div className="flex flex-wrap gap-2">
-              <Button type="submit" disabled={save.isPending || validation !== null}>
+              <Button type="submit" disabled={!dirty || save.isPending}>
                 {save.isPending ? "Guardando…" : "Guardar"}
               </Button>
               <Button
@@ -198,20 +241,24 @@ export function NotificationsPage() {
                 disabled={test.isPending || save.isPending}
                 onClick={() => test.mutate()}
               >
-                {test.isPending ? "Enviando prueba…" : "Enviar prueba"}
+                {test.isPending ? "Enviando prueba…" : "Enviar prueba con configuración guardada"}
               </Button>
             </div>
+            <p className="text-sm text-muted-foreground">
+              La prueba ignora los cambios locales y usa exclusivamente la configuración guardada.
+            </p>
             <p className="text-xs text-muted-foreground">
               Última actualización: {new Date(settings.updatedAt).toLocaleString()}
             </p>
           </form>
         </CardContent>
       </Card>
+      <UnsavedChangesGuard dirty={dirty && !save.isPending} />
     </>
   );
 }
 
-function validate(
+export function validateNotificationSettings(
   enabled: boolean,
   baseUrl: string,
   topic: string,
@@ -247,3 +294,5 @@ function validate(
   }
   return null;
 }
+
+const validate = validateNotificationSettings;

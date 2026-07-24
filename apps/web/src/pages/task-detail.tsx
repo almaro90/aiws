@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useBlocker } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import {
   ArchiveIcon,
   CheckCircle2Icon,
@@ -8,6 +8,8 @@ import {
   ExternalLinkIcon,
   FileIcon,
   FileUpIcon,
+  ListTodoIcon,
+  PanelRightOpenIcon,
   PencilIcon,
   PlusIcon,
   RotateCcwIcon,
@@ -20,6 +22,7 @@ import {
   type ReactNode,
   useEffect,
   useId,
+  useRef,
   useState,
 } from "react";
 import { toast } from "sonner";
@@ -29,23 +32,15 @@ import {
   CopyValue,
   Empty,
   ErrorNotice,
+  FreshnessStatus,
   formatDate,
   Loading,
+  PageBreadcrumb,
   PageHeader,
   StatusBadge,
   buttonVariants,
 } from "../components/common.tsx";
 import { Alert, AlertDescription, AlertTitle } from "../components/ui/alert.tsx";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "../components/ui/alert-dialog.tsx";
 import { Badge } from "../components/ui/badge.tsx";
 import { Button } from "../components/ui/button.tsx";
 import {
@@ -77,6 +72,7 @@ import {
 import { Input } from "../components/ui/input.tsx";
 import { Progress, ProgressLabel } from "../components/ui/progress.tsx";
 import { RadioGroup, RadioGroupItem } from "../components/ui/radio-group.tsx";
+import { ScrollArea } from "../components/ui/scroll-area.tsx";
 import {
   Select,
   SelectContent,
@@ -84,12 +80,35 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../components/ui/select.tsx";
+import {
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "../components/ui/sheet.tsx";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs.tsx";
 import { Textarea } from "../components/ui/textarea.tsx";
-import { ApiError, api } from "../lib/api.ts";
+import { ApiError, api, apiFieldMessage } from "../lib/api.ts";
+import {
+  attachmentAccept,
+  formatFileSize,
+  validateAttachmentFiles,
+} from "../lib/attachment-files.ts";
 import { preserveConflict } from "../lib/conflict.ts";
+import { focusFirstInvalid, UnsavedChangesBadge, UnsavedChangesGuard } from "../lib/form-state.tsx";
 import { renderSafeMarkdown } from "../lib/markdown.ts";
 import { answerPayload, questionPayload, type QuestionDraft } from "../lib/questions.ts";
+import {
+  cycleNumberMap,
+  isActiveRunStatus,
+  parseRunLogRows,
+  presentTaskEvent,
+  primaryTaskAction,
+  selectRelevantRun,
+} from "../lib/task-detail-view.ts";
 import type { Question, Run, Task, TaskStatus, TimelineItem } from "../lib/types.ts";
 import { useUploadQueue } from "../lib/upload-queue.tsx";
 
@@ -101,7 +120,10 @@ const questionTypeOptions = [
 
 export function TaskDetailPage({ taskId }: { readonly taskId: string }) {
   const client = useQueryClient();
-  const [inspectorOpen, setInspectorOpen] = useState(true);
+  const desktop = useDesktopLayout();
+  const inspectorCloseRef = useRef<HTMLButtonElement>(null);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [logsRun, setLogsRun] = useState<Run | null>(null);
   const query = useQuery({
     queryKey: ["task", taskId],
     queryFn: () => api.task(taskId),
@@ -110,17 +132,68 @@ export function TaskDetailPage({ taskId }: { readonly taskId: string }) {
       return status === "curating" || status === "implementing" ? 5_000 : false;
     },
   });
+  const runs = useQuery({
+    queryKey: ["runs", taskId],
+    queryFn: () => api.taskRuns(taskId),
+    refetchInterval: (current) =>
+      current.state.data?.some((run) => isActiveRunStatus(run.status)) ? 5_000 : false,
+  });
   const update = (task: Task, message?: string) => {
     client.setQueryData(["task", taskId], task);
     void client.invalidateQueries({ queryKey: ["timeline", taskId] });
-    void client.invalidateQueries({ queryKey: ["activity", taskId] });
+    void client.invalidateQueries({ queryKey: ["runs", taskId] });
     if (message) toast.success(message);
   };
-  if (query.isError) return <ErrorNotice error={query.error} retry={() => void query.refetch()} />;
+  if (query.isError && query.data === undefined)
+    return <ErrorNotice error={query.error} retry={() => void query.refetch()} />;
   if (query.data === undefined) return <Loading label="Cargando Task" />;
   const task = query.data;
+  const relevantRun = selectRelevantRun(runs.data ?? [], task.currentCycle.id);
+  const refresh = () => {
+    void query.refetch();
+    void client.invalidateQueries({ queryKey: ["timeline", task.id] });
+    void client.invalidateQueries({ queryKey: ["runs", task.id] });
+  };
+  const mobileInspector = !desktop ? (
+    <Sheet open={inspectorOpen} onOpenChange={setInspectorOpen}>
+      <SheetTrigger render={<Button variant="outline" />}>
+        <PanelRightOpenIcon /> Abrir inspector
+      </SheetTrigger>
+      <SheetContent
+        aria-label="Inspector de la Task"
+        className="w-[min(92vw,28rem)] overflow-y-auto p-0"
+        showCloseButton={false}
+        keepMounted
+        initialFocus={inspectorCloseRef}
+      >
+        <SheetHeader className="border-b">
+          <SheetTitle>Inspector de la Task</SheetTitle>
+          <SheetDescription>
+            Curator Spec, Delivery, Attachments y diagnóstico del Cycle vigente.
+          </SheetDescription>
+          <SheetClose
+            render={
+              <Button ref={inspectorCloseRef} className="mt-3 self-start" variant="outline" />
+            }
+          >
+            Cerrar inspector
+          </SheetClose>
+        </SheetHeader>
+        <div className="grid gap-4 p-4">
+          <TaskInspector task={task} onUpdate={update} reload={refresh} />
+        </div>
+      </SheetContent>
+    </Sheet>
+  ) : null;
   return (
     <>
+      <PageBreadcrumb parent={{ to: "/tasks", label: "Tasks" }} current={task.title} />
+      <FreshnessStatus
+        updatedAt={query.dataUpdatedAt}
+        fetching={query.isFetching}
+        error={query.isError ? query.error : undefined}
+        retry={refresh}
+      />
       {task.archivedAt ? (
         <Alert>
           <ArchiveIcon />
@@ -130,43 +203,49 @@ export function TaskDetailPage({ taskId }: { readonly taskId: string }) {
           </AlertDescription>
         </Alert>
       ) : null}
-      <TaskHeader task={task} onUpdate={update} reload={() => void query.refetch()} />
+      <TaskHeader
+        task={task}
+        relevantRun={relevantRun}
+        runsError={runs.error}
+        retryRuns={() => void runs.refetch()}
+        openLogs={setLogsRun}
+        inspectorAction={mobileInspector}
+        onUpdate={update}
+        reload={refresh}
+      />
+      {task.status === "blocked" ? (
+        <QuestionsSection task={task} onUpdate={update} reload={refresh} openOnly />
+      ) : null}
       <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-4 overflow-x-hidden lg:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="grid min-w-0 gap-4">
-          <UserRequestSection task={task} onUpdate={update} reload={() => void query.refetch()} />
-          <ConversationTimeline task={task} onUpdate={update} reload={() => void query.refetch()} />
-          <MessageComposer
-            task={task}
-            refresh={() => {
-              void query.refetch();
-              void client.invalidateQueries({ queryKey: ["timeline", task.id] });
-            }}
-          />
+          <UserRequestSection task={task} onUpdate={update} reload={refresh} />
+          <ConversationTimeline task={task} openLogs={setLogsRun} />
+          <MessageComposer task={task} refresh={refresh} />
           {task.project.repositoryMode === "local" ? (
-            <QuestionsSection
-              task={task}
-              onUpdate={update}
-              reload={() => void query.refetch()}
-              controlsOnly
-            />
+            <QuestionsSection task={task} onUpdate={update} reload={refresh} controlsOnly />
           ) : null}
         </div>
-        <aside className="min-w-0 lg:sticky lg:top-4">
-          <Button
-            className="mb-3 lg:hidden"
-            variant="outline"
-            aria-expanded={inspectorOpen}
-            onClick={() => setInspectorOpen((value) => !value)}
-          >
-            {inspectorOpen ? "Cerrar inspector" : "Abrir inspector"}
-          </Button>
-          <div className={inspectorOpen ? "block" : "hidden lg:block"}>
-            <TaskInspector task={task} onUpdate={update} reload={() => void query.refetch()} />
-          </div>
-        </aside>
+        {desktop ? (
+          <aside className="min-w-0 lg:sticky lg:top-4" aria-label="Inspector de la Task">
+            <TaskInspector task={task} onUpdate={update} reload={refresh} />
+          </aside>
+        ) : null}
       </div>
+      {logsRun ? <RunLogsDialog run={logsRun} close={() => setLogsRun(null)} /> : null}
     </>
   );
+}
+
+function useDesktopLayout(): boolean {
+  const [desktop, setDesktop] = useState(false);
+  useEffect(() => {
+    const query = window.matchMedia("(min-width: 64rem)");
+    const update = () => setDesktop(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+  return desktop;
 }
 
 function TaskInspector({
@@ -180,11 +259,54 @@ function TaskInspector({
 }) {
   return (
     <div className="grid min-w-0 gap-4">
-      <CycleInspector task={task} />
       <SpecSection task={task} onUpdate={onUpdate} reload={reload} />
-      <AttachmentsSection task={task} onRefresh={reload} reload={reload} />
-      <PrSection task={task} onUpdate={onUpdate} reload={reload} />
+      <InspectorDisclosure
+        title="Delivery y PR"
+        description="Rama, referencia y enlace de entrega vigentes."
+      >
+        <CycleInspector task={task} />
+        <PrSection task={task} onUpdate={onUpdate} reload={reload} />
+      </InspectorDisclosure>
+      <InspectorDisclosure
+        title={`Attachments (${task.attachments.length})`}
+        description="Ficheros y cola de upload de la Task."
+      >
+        <AttachmentsSection task={task} onRefresh={reload} reload={reload} />
+      </InspectorDisclosure>
+      <InspectorDisclosure
+        title="Diagnóstico"
+        description="Identificadores y versión para soporte."
+      >
+        <div className="grid gap-2 rounded-lg border p-3 text-sm">
+          <CopyValue label="Task" value={task.id} />
+          <CopyValue label="Cycle" value={task.currentCycle.id} />
+          {task.currentDelivery ? (
+            <CopyValue label="Delivery" value={task.currentDelivery.id} />
+          ) : null}
+          <span className="text-muted-foreground">Versión {task.version}</span>
+        </div>
+      </InspectorDisclosure>
     </div>
+  );
+}
+
+function InspectorDisclosure({
+  title,
+  description,
+  children,
+}: {
+  readonly title: string;
+  readonly description: string;
+  readonly children: ReactNode;
+}) {
+  return (
+    <details className="group rounded-lg border bg-card">
+      <summary className="cursor-pointer list-none p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <span className="font-semibold">{title}</span>
+        <span className="mt-1 block text-xs text-muted-foreground">{description}</span>
+      </summary>
+      <div className="grid gap-4 border-t p-3">{children}</div>
+    </details>
   );
 }
 
@@ -205,7 +327,7 @@ function CycleInspector({ task }: { readonly task: Task }) {
           <>
             <CopyValue label="Delivery" value={task.currentDelivery.id} />
             {task.currentDelivery.branchName ? (
-              <CopyValue label="Branch" value={task.currentDelivery.branchName} />
+              <CopyValue label="Rama" value={task.currentDelivery.branchName} />
             ) : null}
             {task.currentDelivery.baseBranch ? (
               <CopyValue label="Rama de referencia" value={task.currentDelivery.baseBranch} />
@@ -231,15 +353,11 @@ function CycleInspector({ task }: { readonly task: Task }) {
 
 function ConversationTimeline({
   task,
-  onUpdate,
-  reload,
+  openLogs,
 }: {
   readonly task: Task;
-  readonly onUpdate: (task: Task, message?: string) => void;
-  readonly reload: () => void;
+  readonly openLogs: (run: Run) => void;
 }) {
-  const [logsRun, setLogsRun] = useState<Run | null>(null);
-  const [editingQuestion, setEditingQuestion] = useState<Question | null>(null);
   const timeline = useInfiniteQuery({
     queryKey: ["timeline", task.id],
     initialPageParam: undefined as string | undefined,
@@ -247,13 +365,34 @@ function ConversationTimeline({
     getNextPageParam: (page) => page.nextCursor ?? undefined,
     refetchInterval: task.status === "curating" || task.status === "implementing" ? 5_000 : false,
   });
-  if (timeline.isError)
+  if (timeline.isError && timeline.data === undefined)
     return <ErrorNotice error={timeline.error} retry={() => void timeline.refetch()} />;
   if (timeline.data === undefined) return <Loading label="Cargando timeline" />;
   const items = [...timeline.data.pages].reverse().flatMap((page) => page.items);
-  let previousCycle = "";
+  const cycleNumbers = cycleNumberMap(task.currentCycle, items);
+  const groups: Array<{ cycleId: string | null; items: TimelineItem[] }> = [];
+  let previousCycle: string | null = null;
+  for (const item of items) {
+    const resolvedCycle: string | null = item.cycleId ?? previousCycle ?? task.currentCycle.id;
+    previousCycle = resolvedCycle;
+    const group = groups.at(-1);
+    if (group && group.cycleId === resolvedCycle) group.items.push(item);
+    else groups.push({ cycleId: resolvedCycle, items: [item] });
+  }
   return (
     <section className="grid gap-3" aria-label="Timeline de la Task">
+      <div>
+        <h2 className="text-xl font-semibold">Conversación e historial</h2>
+        <p className="text-sm text-muted-foreground">
+          Mensajes y resultados organizados por Cycle; el historial no se puede modificar.
+        </p>
+        <FreshnessStatus
+          updatedAt={timeline.dataUpdatedAt}
+          fetching={timeline.isFetching && !timeline.isFetchingNextPage}
+          error={timeline.isError ? timeline.error : undefined}
+          retry={() => void timeline.refetch()}
+        />
+      </div>
       {timeline.hasNextPage ? (
         <Button
           variant="outline"
@@ -263,41 +402,30 @@ function ConversationTimeline({
           Cargar historial anterior
         </Button>
       ) : null}
-      {items.map((item) => {
-        const cycleId = item.cycleId ?? previousCycle;
-        const separator = cycleId !== previousCycle;
-        previousCycle = cycleId;
+      {groups.map((group, groupIndex) => {
+        const number = group.cycleId === null ? null : (cycleNumbers.get(group.cycleId) ?? null);
         return (
-          <div key={timelineKey(item)} className="grid gap-3">
-            {separator ? (
-              <div className="flex items-center gap-3 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                <span className="h-px flex-1 bg-border" />
-                Cycle {cycleId === task.currentCycle.id ? task.currentCycle.number : cycleId}
-                <span className="h-px flex-1 bg-border" />
-              </div>
-            ) : null}
-            <TimelineCard
-              item={item}
-              task={task}
-              onUpdate={onUpdate}
-              reload={reload}
-              openLogs={setLogsRun}
-              editQuestion={setEditingQuestion}
-            />
-          </div>
+          <section
+            key={group.cycleId ?? `general-${groupIndex}`}
+            className="grid gap-3"
+            aria-label={number === null ? "Actividad general" : `Cycle ${number}`}
+          >
+            <div className="flex items-center gap-3 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              <span className="h-px flex-1 bg-border" />
+              {number === null ? "Actividad general" : `Cycle ${number}`}
+              {group.cycleId === task.currentCycle.id ? (
+                <Badge variant="outline">Vigente</Badge>
+              ) : null}
+              <span className="h-px flex-1 bg-border" />
+            </div>
+            {group.items.map((item) => (
+              <TimelineCard key={timelineKey(item)} item={item} openLogs={openLogs} />
+            ))}
+          </section>
         );
       })}
-      {logsRun ? <RunLogsDialog run={logsRun} close={() => setLogsRun(null)} /> : null}
-      {editingQuestion ? (
-        <Dialog open onOpenChange={(open) => !open && setEditingQuestion(null)}>
-          <QuestionEditorDialog
-            task={task}
-            question={editingQuestion}
-            close={() => setEditingQuestion(null)}
-            onUpdate={onUpdate}
-            reload={reload}
-          />
-        </Dialog>
+      {items.length === 0 ? (
+        <Empty title="Sin historial">Todavía no hay elementos en la timeline.</Empty>
       ) : null}
     </section>
   );
@@ -312,18 +440,10 @@ function timelineKey(item: TimelineItem): string {
 
 function TimelineCard({
   item,
-  task,
-  onUpdate,
-  reload,
   openLogs,
-  editQuestion,
 }: {
   readonly item: TimelineItem;
-  readonly task: Task;
-  readonly onUpdate: (task: Task, message?: string) => void;
-  readonly reload: () => void;
   readonly openLogs: (run: Run) => void;
-  readonly editQuestion: (question: Question) => void;
 }) {
   if (item.kind === "message")
     return (
@@ -347,7 +467,7 @@ function TimelineCard({
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Spec revision {item.revision}</CardTitle>
+          <CardTitle className="text-base">Revisión de spec {item.revision}</CardTitle>
           <CardDescription>{formatDate(item.createdAt)}</CardDescription>
         </CardHeader>
         <CardContent>
@@ -363,39 +483,62 @@ function TimelineCard({
       </Card>
     );
   if (item.kind === "question") {
-    if (item.cycleId === task.currentCycle.id)
-      return (
-        <QuestionCard
-          task={task}
-          question={item.question}
-          onEdit={() => editQuestion(item.question)}
-          onUpdate={onUpdate}
-          reload={reload}
-        />
-      );
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Question histórica</CardTitle>
-          <CardDescription>{item.question.status}</CardDescription>
+          <CardTitle className="text-base">Question · {item.question.text}</CardTitle>
+          <CardDescription>
+            {questionStatusLabel(item.question.status)} · {formatDate(item.createdAt)}
+          </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-2">
-          <p>{item.question.text}</p>
-          {item.answers.map((answer) => (
-            <p key={answer.id} className="rounded bg-muted p-2 text-sm">
-              Respuesta {answer.revision}:{" "}
-              {answer.answerText ?? answer.selectedOptionIds.join(", ")}
-            </p>
-          ))}
+          {item.answers.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Sin respuestas registradas.</p>
+          ) : (
+            item.answers.map((answer) => (
+              <div key={answer.id} className="rounded bg-muted p-3 text-sm">
+                <strong>Respuesta {answer.revision}</strong>
+                <p className="mt-1 whitespace-pre-wrap">
+                  {answer.answerText ?? answer.selectedOptionIds.join(", ")}
+                </p>
+              </div>
+            ))
+          )}
         </CardContent>
       </Card>
     );
   }
-  if (item.kind === "run")
-    return <RunTimelineCard run={item.run} task={task} reload={reload} openLogs={openLogs} />;
+  if (item.kind === "run") return <RunTimelineCard run={item.run} openLogs={openLogs} />;
+  return <ActivityTimelineItem item={item} />;
+}
+
+function ActivityTimelineItem({
+  item,
+}: {
+  readonly item: Extract<TimelineItem, { kind: "event" }>;
+}) {
+  const presentation = presentTaskEvent(item.event);
+  const hasMetadata = Object.keys(presentation.metadata).length > 0;
   return (
-    <div className="mx-auto rounded-full border bg-muted/50 px-3 py-1 text-center text-xs text-muted-foreground">
-      {item.event.type} · {formatDate(item.createdAt)}
+    <div className="mx-auto w-[min(100%,42rem)] rounded-lg border bg-muted/40 px-4 py-3 text-sm">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <strong>{presentation.label}</strong>
+          <p className="text-xs text-muted-foreground">
+            {presentation.actor}
+            {presentation.summary ? ` · ${presentation.summary}` : ""}
+          </p>
+        </div>
+        <time className="text-xs text-muted-foreground">{formatDate(item.createdAt)}</time>
+      </div>
+      {hasMetadata ? (
+        <details className="mt-2">
+          <summary className="cursor-pointer text-xs font-medium">Ver metadata segura</summary>
+          <pre className="mt-2 overflow-x-auto rounded bg-background p-2 font-mono text-xs whitespace-pre-wrap">
+            {JSON.stringify(presentation.metadata, null, 2)}
+          </pre>
+        </details>
+      ) : null}
     </div>
   );
 }
@@ -416,7 +559,7 @@ function MessageComposer({ task, refresh }: { readonly task: Task; readonly refr
   if (!visible) return null;
   const label = task.status === "done" ? "Solicitar cambio" : "Añadir contexto";
   return (
-    <Card>
+    <Card id={task.status === "done" ? "request-change" : "add-context"}>
       <CardHeader>
         <CardTitle>{label}</CardTitle>
         <CardDescription>
@@ -461,82 +604,42 @@ function MessageComposer({ task, refresh }: { readonly task: Task; readonly refr
 
 function RunTimelineCard({
   run,
-  task,
-  reload,
   openLogs,
 }: {
   readonly run: Run;
-  readonly task: Task;
-  readonly reload: () => void;
   readonly openLogs: (run: Run) => void;
 }) {
-  const client = useQueryClient();
-  const refresh = async () => {
-    await Promise.all([
-      client.invalidateQueries({ queryKey: ["task", task.id] }),
-      client.invalidateQueries({ queryKey: ["timeline", task.id] }),
-    ]);
-    reload();
-  };
-  const retry = useMutation({
-    mutationFn: (mode: "auto" | "full") => api.retryRun(run.id, task.version, mode),
-    onSuccess: refresh,
-  });
-  const cancel = useMutation({
-    mutationFn: () => api.cancelRun(run.id, "Cancelled from Web.", task.version),
-    onSuccess: refresh,
-  });
-  const active = ["queued", "preparing", "running", "publishing"].includes(run.status);
-  const retryable =
-    ["failed", "cancelled"].includes(run.status) &&
-    (task.status === "ready" || task.status === "curating");
   return (
-    <Card>
+    <Card size="sm">
       <CardHeader>
         <CardTitle className="text-base">
-          Run {run.kind} · attempt {run.attempt}
+          Run de {runKindLabel(run.kind)} · intento {run.attempt}
         </CardTitle>
         <CardDescription>
-          {run.status} · etapa {run.executionStage}
-          {run.outcome ? ` · ${run.outcome}` : ""}
+          {runStatusLabel(run.status)}
+          {run.outcome ? ` · resultado ${run.outcome}` : ""}
         </CardDescription>
+        <CardAction>
+          <Badge variant={run.status === "failed" ? "destructive" : "outline"}>
+            {runStatusLabel(run.status)}
+          </Badge>
+        </CardAction>
       </CardHeader>
       <CardContent className="grid gap-3">
         <p className="text-sm text-muted-foreground">
           {run.summary ?? run.errorMessage ?? "Sin resumen"}
         </p>
+        {run.kind === "implementation" ? (
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+            {run.branchName ? <span>Rama: {run.branchName}</span> : null}
+            {run.executionStage === "publishing" ? <span>Etapa: publicación</span> : null}
+          </div>
+        ) : null}
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" onClick={() => openLogs(run)}>
             Logs
           </Button>
-          {retryable ? (
-            <Button size="sm" disabled={retry.isPending} onClick={() => retry.mutate("auto")}>
-              Retry
-            </Button>
-          ) : null}
-          {retryable && run.executionStage === "publishing" ? (
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={retry.isPending}
-              onClick={() => retry.mutate("full")}
-            >
-              Retry completo
-            </Button>
-          ) : null}
-          {active ? (
-            <Button
-              variant="destructive"
-              size="sm"
-              disabled={cancel.isPending}
-              onClick={() => cancel.mutate()}
-            >
-              Cancelar
-            </Button>
-          ) : null}
         </div>
-        {retry.isError ? <ErrorNotice error={retry.error} /> : null}
-        {cancel.isError ? <ErrorNotice error={cancel.error} /> : null}
       </CardContent>
     </Card>
   );
@@ -548,27 +651,40 @@ function RunLogsDialog({ run, close }: { readonly run: Run; readonly close: () =
     queryFn: () => api.run(run.id),
     initialData: run,
     refetchInterval: (query) =>
-      query.state.data !== undefined && isActiveRun(query.state.data.status) ? 3_000 : false,
+      query.state.data !== undefined && isActiveRunStatus(query.state.data.status) ? 3_000 : false,
   });
-  const active = isActiveRun(current.data.status);
+  const active = isActiveRunStatus(current.data.status);
   const logs = useQuery({
     queryKey: ["run-logs", run.id],
     queryFn: () => api.runLogs(run.id),
     retry: false,
     refetchInterval: active ? 3_000 : false,
   });
-  const missing = logs.error instanceof ApiError && logs.error.code === "not_found";
+  const missing =
+    logs.data === undefined && logs.error instanceof ApiError && logs.error.code === "not_found";
   const logText = logs.data ?? "";
+  const logRows = parseRunLogRows(logText);
   return (
     <Dialog open onOpenChange={(open) => (open ? undefined : close())}>
       <DialogContent showCloseButton={false} className="max-h-[90svh] overflow-hidden sm:max-w-4xl">
         <DialogHeader>
-          <DialogTitle>Logs · Attempt {run.attempt}</DialogTitle>
+          <DialogTitle>Logs · Intento {run.attempt}</DialogTitle>
           <DialogDescription>
             Eventos NDJSON del Run {run.kind}. Los secretos permanecen redactados.
           </DialogDescription>
         </DialogHeader>
-        {logs.isLoading ? (
+        {logs.data !== undefined ? (
+          <FreshnessStatus
+            updatedAt={logs.dataUpdatedAt}
+            fetching={logs.isFetching}
+            error={logs.isError ? logs.error : current.isError ? current.error : undefined}
+            retry={() => {
+              void current.refetch();
+              void logs.refetch();
+            }}
+          />
+        ) : null}
+        {logs.isLoading && logs.data === undefined ? (
           <Loading label="Cargando logs" />
         ) : missing ? (
           <Empty
@@ -579,16 +695,38 @@ function RunLogsDialog({ run, close }: { readonly run: Run; readonly close: () =
                 ? "Los eventos aparecerán automáticamente."
                 : "El Run terminó antes de producir eventos.")}
           </Empty>
-        ) : logs.isError ? (
+        ) : logs.isError && logs.data === undefined ? (
           <ErrorNotice error={logs.error} retry={() => void logs.refetch()} />
         ) : logText.trim() === "" ? (
           <Empty title={active ? "Iniciando captura de logs…" : "Logs vacíos"}>
             {active ? "Los eventos aparecerán automáticamente." : "El Run no produjo eventos."}
           </Empty>
         ) : (
-          <pre className="max-h-[65svh] overflow-auto rounded-lg bg-muted p-3 font-mono text-xs whitespace-pre-wrap">
-            {formatRunLogs(logText)}
-          </pre>
+          <div className="grid min-h-0 gap-3">
+            <ScrollArea className="h-[min(52svh,32rem)] rounded-lg border bg-muted/30">
+              <ol className="divide-y">
+                {logRows.map((row, index) => (
+                  <li key={row.id} className="grid gap-1 p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <strong className="font-mono text-xs">{row.label}</strong>
+                      <span className="text-xs text-muted-foreground">Evento {index + 1}</span>
+                    </div>
+                    {row.detail ? (
+                      <p className="break-words text-sm text-muted-foreground">{row.detail}</p>
+                    ) : null}
+                  </li>
+                ))}
+              </ol>
+            </ScrollArea>
+            <details>
+              <summary className="cursor-pointer text-sm font-medium">
+                Ver NDJSON formateado
+              </summary>
+              <pre className="mt-2 max-h-64 overflow-auto rounded-lg bg-muted p-3 font-mono text-xs whitespace-pre-wrap">
+                {formatRunLogs(logText)}
+              </pre>
+            </details>
+          </div>
         )}
         {!active && current.data.errorMessage && logText.trim() !== "" ? (
           <Alert>
@@ -605,30 +743,28 @@ function RunLogsDialog({ run, close }: { readonly run: Run; readonly close: () =
   );
 }
 
-function isActiveRun(status: Run["status"]): boolean {
-  return ["queued", "preparing", "running", "publishing"].includes(status);
-}
-
 export function formatRunLogs(value: string): string {
-  return value
-    .split("\n")
-    .filter((line) => line.trim() !== "")
-    .map((line) => {
-      try {
-        return JSON.stringify(JSON.parse(line), null, 2);
-      } catch {
-        return line;
-      }
-    })
+  return parseRunLogRows(value)
+    .map((row) => row.raw)
     .join("\n\n");
 }
 
 function TaskHeader({
   task,
+  relevantRun,
+  runsError,
+  retryRuns,
+  openLogs,
+  inspectorAction,
   onUpdate,
   reload,
 }: {
   readonly task: Task;
+  readonly relevantRun: Run | null;
+  readonly runsError: unknown;
+  readonly retryRuns: () => void;
+  readonly openLogs: (run: Run) => void;
+  readonly inspectorAction: ReactNode;
   readonly onUpdate: (task: Task, message?: string) => void;
   readonly reload: () => void;
 }) {
@@ -636,7 +772,7 @@ function TaskHeader({
   const [title, setTitle] = useState(task.title);
   const save = useMutation({
     mutationFn: () => api.updateTask(task.id, { title }, task.version),
-    onSuccess: (value) => onUpdate(value, "Title guardado"),
+    onSuccess: (value) => onUpdate(value, "Título guardado"),
   });
   const restore = useMutation({
     mutationFn: () => api.unarchiveTask(task.id, task.version),
@@ -646,16 +782,45 @@ function TaskHeader({
     mutationFn: () => api.resumeTaskAutomation(task.id, task.version),
     onSuccess: (value) => onUpdate(value, "Automatización reanudada"),
   });
+  const retryRun = useMutation({
+    mutationFn: (mode: "auto" | "full") => {
+      if (relevantRun === null) throw new Error("No hay un Run para reintentar.");
+      return api.retryRun(relevantRun.id, task.version, mode);
+    },
+    onSuccess: () => {
+      toast.success("Retry solicitado");
+      reload();
+    },
+  });
+  const cancelRun = useMutation({
+    mutationFn: () => {
+      if (relevantRun === null) throw new Error("No hay un Run para cancelar.");
+      return api.cancelRun(relevantRun.id, "Cancelled from Web.", task.version);
+    },
+    onSuccess: () => {
+      toast.success("Cancelación solicitada");
+      reload();
+    },
+  });
   const titleConflict = preserveConflict(save.error, title, task.version);
-  const next = explicitTransition(task);
+  const primaryAction = primaryTaskAction(task);
+  const runActive = relevantRun !== null && isActiveRunStatus(relevantRun.status);
+  const runRetryable =
+    relevantRun !== null &&
+    (relevantRun.status === "failed" || relevantRun.status === "cancelled") &&
+    (task.status === "ready" || task.status === "curating");
+  const runDominates = runActive || runRetryable;
   useEffect(() => setTitle(task.title), [task.title]);
+  useEffect(() => {
+    if (save.error && !titleConflict) focusFirstInvalid();
+  }, [save.error, titleConflict]);
   return (
-    <Card>
+    <Card aria-label="Resumen operativo de la Task">
       <CardHeader>
         <CardTitle>
           <PageHeader
             title={task.title}
-            description={`Task · v${task.version}`}
+            description={taskStatusGuidance(task)}
             actions={<StatusBadge status={task.status} />}
           />
         </CardTitle>
@@ -667,8 +832,8 @@ function TaskHeader({
             <AlertTitle>Automatización pausada</AlertTitle>
             <AlertDescription className="grid gap-3">
               <p>
-                No se crearán nuevos Runs para esta Task hasta reanudarla. Revisa antes el último
-                fallo en la timeline.
+                No se crearán nuevos Runs para esta Task hasta reanudarla. Revisa el último fallo
+                mostrado en este resumen.
               </p>
               <Button
                 className="justify-self-start"
@@ -686,19 +851,97 @@ function TaskHeader({
           </Alert>
         ) : null}
         {resumeAutomation.isError ? <ErrorNotice error={resumeAutomation.error} /> : null}
+        <div className="grid gap-3 rounded-lg bg-muted/40 p-4 sm:grid-cols-3">
+          <div>
+            <span className="block text-xs text-muted-foreground">Project</span>
+            <Link
+              className="font-medium text-primary hover:underline"
+              to="/projects/$projectId"
+              params={{ projectId: task.project.id }}
+            >
+              {task.project.name}
+            </Link>
+          </div>
+          <div>
+            <span className="block text-xs text-muted-foreground">Cycle vigente</span>
+            <strong>Cycle {task.currentCycle.number}</strong>
+          </div>
+          <div>
+            <span className="block text-xs text-muted-foreground">Versión del agregado</span>
+            <strong>v{task.version}</strong>
+          </div>
+        </div>
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
           <CopyValue label="ID" value={task.id} />
-          <Link
-            className="text-sm font-medium text-primary hover:underline"
-            to="/projects/$projectId"
-            params={{ projectId: task.project.id }}
-          >
-            {task.project.name}
-          </Link>
+          <CopyValue label="Cycle" value={task.currentCycle.id} />
           {task.archivedAt ? (
             <Badge variant="outline">Archivada {formatDate(task.archivedAt)}</Badge>
           ) : null}
         </div>
+        {runsError ? <ErrorNotice error={runsError} retry={retryRuns} /> : null}
+        {relevantRun ? (
+          <section
+            className="grid gap-3 rounded-lg border border-primary/20 bg-primary/5 p-4"
+            aria-label="Run vigente"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <strong>
+                  {runActive ? "Run activo" : "Último Run accionable"} ·{" "}
+                  {runKindLabel(relevantRun.kind)} · intento {relevantRun.attempt}
+                </strong>
+                <p className="text-sm text-muted-foreground">
+                  {runStatusLabel(relevantRun.status)}
+                  {relevantRun.kind === "implementation" &&
+                  relevantRun.executionStage === "publishing"
+                    ? " · etapa de publicación"
+                    : ""}
+                </p>
+              </div>
+              <Badge variant={relevantRun.status === "failed" ? "destructive" : "outline"}>
+                {runStatusLabel(relevantRun.status)}
+              </Badge>
+            </div>
+            <p className="text-sm">
+              {relevantRun.errorMessage ?? relevantRun.summary ?? "Sin diagnóstico disponible."}
+            </p>
+            {relevantRun.kind === "implementation" && relevantRun.branchName ? (
+              <p className="break-all text-xs text-muted-foreground">
+                Rama: {relevantRun.branchName}
+              </p>
+            ) : null}
+            <div className="flex flex-wrap gap-2">
+              {runRetryable ? (
+                <Button disabled={retryRun.isPending} onClick={() => retryRun.mutate("auto")}>
+                  Reintentar
+                </Button>
+              ) : null}
+              {runRetryable && relevantRun.executionStage === "publishing" ? (
+                <Button
+                  variant="outline"
+                  disabled={retryRun.isPending}
+                  onClick={() => retryRun.mutate("full")}
+                >
+                  Reintentar completo
+                </Button>
+              ) : null}
+              <Button variant="outline" onClick={() => openLogs(relevantRun)}>
+                Ver logs
+              </Button>
+              {runActive ? (
+                <Button
+                  variant="destructive"
+                  disabled={cancelRun.isPending}
+                  onClick={() => cancelRun.mutate()}
+                >
+                  Cancelar Run
+                </Button>
+              ) : null}
+            </div>
+            {retryRun.isError ? <ErrorNotice error={retryRun.error} /> : null}
+            {cancelRun.isError ? <ErrorNotice error={cancelRun.error} /> : null}
+          </section>
+        ) : null}
         {titleConflict ? (
           <ConflictBanner
             readVersion={titleConflict.readVersion}
@@ -715,17 +958,27 @@ function TaskHeader({
               save.mutate();
             }}
           >
-            <Field className="min-w-0 flex-1 basis-64">
+            <Field
+              className="min-w-0 flex-1 basis-64"
+              data-invalid={Boolean(apiFieldMessage(save.error, "title"))}
+            >
               <FieldLabel className="sr-only" htmlFor={titleId}>
-                Title
+                Título
               </FieldLabel>
               <Input
                 id={titleId}
                 maxLength={200}
                 value={title}
                 disabled={task.status !== "draft"}
+                aria-invalid={Boolean(apiFieldMessage(save.error, "title"))}
+                aria-describedby={
+                  apiFieldMessage(save.error, "title") ? `${titleId}-error` : undefined
+                }
                 onChange={(event) => setTitle(event.target.value)}
               />
+              <FieldError id={`${titleId}-error`}>
+                {apiFieldMessage(save.error, "title")}
+              </FieldError>
             </Field>
             <Button
               variant="outline"
@@ -737,41 +990,68 @@ function TaskHeader({
               }
               type="submit"
             >
-              <SaveIcon /> Guardar title
+              <SaveIcon /> Guardar título
             </Button>
           </form>
         ) : null}
-        <div className="flex flex-wrap gap-2">
-          {next ? (
+        <div className="flex flex-wrap items-center gap-2">
+          {primaryAction?.kind === "transition" ? (
             <ReasonActionDialog
               trigger={
-                <Button>
-                  {transitionIcon(next)}
-                  {transitionLabel(next)}
+                <Button variant={runDominates ? "outline" : "default"}>
+                  {transitionIcon(primaryAction.nextStatus)}
+                  {primaryAction.label}
                 </Button>
               }
-              title={transitionLabel(next)}
-              description={transitionDescription(task.status, next)}
-              confirmLabel={transitionLabel(next)}
-              disabled={next === "ready" && !canReady(task)}
+              title={primaryAction.label}
+              description={transitionDescription(task.status, primaryAction.nextStatus)}
+              confirmLabel={primaryAction.label}
+              disabled={primaryAction.nextStatus === "ready" && !canReady(task)}
               action={(reason) =>
                 api.transitionTask(
                   task.id,
-                  { from: task.status, to: next, ...(reason ? { reason } : {}) },
+                  {
+                    from: task.status,
+                    to: primaryAction.nextStatus,
+                    ...(reason ? { reason } : {}),
+                  },
                   task.version,
                 )
               }
-              onSuccess={(value) => onUpdate(value, `Task movida a ${next}`)}
+              onSuccess={(value) => onUpdate(value, `Task movida a ${primaryAction.nextStatus}`)}
             />
           ) : null}
-          {task.archivedAt ? (
+          {primaryAction?.kind === "answer" ? (
+            <Button
+              onClick={() => {
+                const target = document.getElementById("open-questions");
+                target?.scrollIntoView({ behavior: "smooth", block: "start" });
+                target?.querySelector<HTMLElement>('[id^="answer-"]')?.focus();
+              }}
+            >
+              <ListTodoIcon /> {primaryAction.label}
+            </Button>
+          ) : null}
+          {primaryAction?.kind === "message" ? (
+            <Button
+              onClick={() => {
+                const target = document.getElementById("request-change");
+                target?.scrollIntoView({ behavior: "smooth", block: "start" });
+                target?.querySelector<HTMLElement>("textarea")?.focus();
+              }}
+            >
+              <PencilIcon /> {primaryAction.label}
+            </Button>
+          ) : null}
+          {primaryAction?.kind === "restore" ? (
             <Button disabled={restore.isPending} onClick={() => restore.mutate()}>
               <RotateCcwIcon /> Restaurar Task
             </Button>
-          ) : (
+          ) : null}
+          {!task.archivedAt ? (
             <ReasonActionDialog
               trigger={
-                <Button variant="destructive">
+                <Button variant="ghost" className="text-destructive hover:text-destructive">
                   <ArchiveIcon /> Archivar Task
                 </Button>
               }
@@ -782,9 +1062,13 @@ function TaskHeader({
               action={(reason) => api.archiveTask(task.id, task.version, reason)}
               onSuccess={(value) => onUpdate(value, "Task archivada")}
             />
-          )}
+          ) : null}
+          {inspectorAction}
         </div>
-        {next === "ready" && !canReady(task) && !task.archivedAt ? (
+        {primaryAction?.kind === "transition" &&
+        primaryAction.nextStatus === "ready" &&
+        !canReady(task) &&
+        !task.archivedAt ? (
           <p className="text-sm text-muted-foreground">
             Para marcar Ready, guarda una Curator Spec no vacía y resuelve todas las Questions
             abiertas.
@@ -814,6 +1098,9 @@ function UserRequestSection({
   });
   const conflict = preserveConflict(save.error, request, task.version);
   useEffect(() => setRequest(task.userRequest), [task.userRequest]);
+  useEffect(() => {
+    if (save.error && !conflict) focusFirstInvalid();
+  }, [save.error, conflict]);
   if (task.status !== "draft" || task.archivedAt) {
     return (
       <SectionCard title="User Request" description="Petición congelada al enviarse a curation.">
@@ -832,15 +1119,22 @@ function UserRequestSection({
             reload={reload}
           />
         ) : null}
-        <Field>
+        <Field data-invalid={Boolean(apiFieldMessage(save.error, "userRequest"))}>
           <FieldLabel htmlFor={requestId}>User Request</FieldLabel>
           <Textarea
             id={requestId}
             className="min-h-40"
             maxLength={100000}
             value={request}
+            aria-invalid={Boolean(apiFieldMessage(save.error, "userRequest"))}
+            aria-describedby={
+              apiFieldMessage(save.error, "userRequest") ? `${requestId}-error` : undefined
+            }
             onChange={(event) => setRequest(event.target.value)}
           />
+          <FieldError id={`${requestId}-error`}>
+            {apiFieldMessage(save.error, "userRequest")}
+          </FieldError>
         </Field>
         <Button
           className="justify-self-start"
@@ -897,15 +1191,12 @@ function SpecSection({
   });
   const conflict = preserveConflict(save.error, spec, task.version);
   const dirty = spec !== task.curatorSpec;
-  const blocker = useBlocker({
-    shouldBlockFn: () => dirty,
-    disabled: !dirty,
-    enableBeforeUnload: dirty,
-    withResolver: true,
-  });
   useEffect(() => {
     if (!dirty) setSpec(task.curatorSpec);
   }, [task.curatorSpec, dirty]);
+  useEffect(() => {
+    if (save.error && !conflict) focusFirstInvalid();
+  }, [save.error, conflict]);
   return (
     <Card>
       <CardHeader>
@@ -915,9 +1206,7 @@ function SpecSection({
         </CardDescription>
         {dirty ? (
           <CardAction>
-            <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-800">
-              Cambios sin guardar
-            </Badge>
+            <UnsavedChangesBadge dirty />
           </CardAction>
         ) : null}
       </CardHeader>
@@ -936,7 +1225,7 @@ function SpecSection({
             <TabsTrigger value="preview">Preview</TabsTrigger>
           </TabsList>
           <TabsContent value="edit">
-            <Field>
+            <Field data-invalid={Boolean(apiFieldMessage(save.error, "curatorSpec"))}>
               <FieldLabel className="sr-only" htmlFor={`spec-${task.id}`}>
                 Curator Spec Markdown
               </FieldLabel>
@@ -946,8 +1235,15 @@ function SpecSection({
                 maxLength={1048576}
                 value={spec}
                 disabled={Boolean(task.archivedAt)}
+                aria-invalid={Boolean(apiFieldMessage(save.error, "curatorSpec"))}
+                aria-describedby={
+                  apiFieldMessage(save.error, "curatorSpec") ? `spec-${task.id}-error` : undefined
+                }
                 onChange={(event) => setSpec(event.target.value)}
               />
+              <FieldError id={`spec-${task.id}-error`}>
+                {apiFieldMessage(save.error, "curatorSpec")}
+              </FieldError>
             </Field>
           </TabsContent>
           <TabsContent value="preview">
@@ -968,32 +1264,10 @@ function SpecSection({
           </Button>
         ) : null}
         {save.isError && !conflict ? <ErrorNotice error={save.error} /> : null}
-        <AlertDialog
-          open={blocker.status === "blocked"}
-          onOpenChange={(open) => {
-            if (!open && blocker.status === "blocked") blocker.reset();
-          }}
-        >
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Hay cambios sin guardar</AlertDialogTitle>
-              <AlertDialogDescription>
-                Si sales ahora perderás el borrador local de la Curator Spec.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel onClick={() => blocker.status === "blocked" && blocker.reset()}>
-                Seguir editando
-              </AlertDialogCancel>
-              <AlertDialogAction
-                variant="destructive"
-                onClick={() => blocker.status === "blocked" && blocker.proceed()}
-              >
-                Salir sin guardar
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+        <UnsavedChangesGuard
+          dirty={dirty}
+          description="Si sales ahora perderás el borrador local de la Curator Spec."
+        />
       </CardContent>
     </Card>
   );
@@ -1004,30 +1278,40 @@ function QuestionsSection({
   onUpdate,
   reload,
   controlsOnly = false,
+  openOnly = false,
 }: {
   readonly task: Task;
   readonly onUpdate: (task: Task, message?: string) => void;
   readonly reload: () => void;
   readonly controlsOnly?: boolean;
+  readonly openOnly?: boolean;
 }) {
   const titleId = useId();
   const [editing, setEditing] = useState<Question | null>(null);
   const [open, setOpen] = useState(false);
-  const ordered = [...task.questions].sort(
-    (left, right) =>
-      Number(right.status === "open") - Number(left.status === "open") ||
-      left.createdAt.localeCompare(right.createdAt),
-  );
+  const ordered = task.questions
+    .filter((question) => !openOnly || question.status === "open")
+    .sort(
+      (left, right) =>
+        Number(right.status === "open") - Number(left.status === "open") ||
+        left.createdAt.localeCompare(right.createdAt),
+    );
   const canCreate = !task.archivedAt && task.status !== "draft" && task.status !== "done";
   return (
-    <section className="grid gap-3" aria-labelledby={titleId}>
+    <section
+      id={openOnly ? "open-questions" : undefined}
+      className="grid scroll-mt-4 gap-3"
+      aria-labelledby={titleId}
+    >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 id={titleId} className="text-xl font-semibold">
-            Questions
+            {openOnly ? "Questions abiertas" : "Questions"}
           </h2>
           <p className="text-sm text-muted-foreground">
-            Las Questions abiertas bloquean automáticamente la Task.
+            {openOnly
+              ? "Responde o descarta la información pendiente antes de añadir más contexto."
+              : "Las Questions abiertas bloquean automáticamente la Task."}
           </p>
         </div>
         {canCreate ? (
@@ -1052,7 +1336,9 @@ function QuestionsSection({
         ) : null}
       </div>
       {controlsOnly ? null : ordered.length === 0 ? (
-        <Empty title="Sin Questions">No hay información pendiente para esta Task.</Empty>
+        <Empty title={openOnly ? "Sin Questions abiertas" : "Sin Questions"}>
+          No hay información pendiente para esta Task.
+        </Empty>
       ) : (
         ordered.map((question) => (
           <QuestionCard
@@ -1131,6 +1417,11 @@ function QuestionEditorDialog({
     setOptions(question?.options.map((item) => item.label).join("\n") ?? "");
     setAllowOther(question?.allowOther ?? false);
   }, [question]);
+  useEffect(() => {
+    if (localError || mutation.error) focusFirstInvalid();
+  }, [localError, mutation.error]);
+  const textError = apiFieldMessage(mutation.error, "text");
+  const optionsError = apiFieldMessage(mutation.error, "options");
   return (
     <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-lg">
       <DialogHeader>
@@ -1140,12 +1431,14 @@ function QuestionEditorDialog({
         </DialogDescription>
       </DialogHeader>
       <FieldGroup>
-        <Field>
+        <Field data-invalid={Boolean(localError || textError)}>
           <FieldLabel htmlFor={`${id}-text`}>Texto</FieldLabel>
           <Textarea
             id={`${id}-text`}
             className="min-h-24"
             value={text}
+            aria-invalid={Boolean(localError || textError)}
+            aria-describedby={localError || textError ? `${id}-definition-error` : undefined}
             onChange={(event) => setText(event.target.value)}
           />
         </Field>
@@ -1169,15 +1462,24 @@ function QuestionEditorDialog({
           </Select>
         </Field>
         {type !== "text" ? (
-          <Field>
+          <Field data-invalid={Boolean(localError || optionsError)}>
             <FieldLabel htmlFor={`${id}-options`}>Opciones</FieldLabel>
             <Textarea
               id={`${id}-options`}
               className="min-h-32"
               value={options}
+              aria-invalid={Boolean(localError || optionsError)}
+              aria-describedby={[
+                `${id}-options-description`,
+                localError || optionsError ? `${id}-definition-error` : null,
+              ]
+                .filter(Boolean)
+                .join(" ")}
               onChange={(event) => setOptions(event.target.value)}
             />
-            <FieldDescription>Una opción por línea; mínimo 2 y máximo 20.</FieldDescription>
+            <FieldDescription id={`${id}-options-description`}>
+              Una opción por línea; mínimo 2 y máximo 20.
+            </FieldDescription>
           </Field>
         ) : null}
         <Field orientation="horizontal">
@@ -1185,7 +1487,11 @@ function QuestionEditorDialog({
           <FieldLabel htmlFor={`${id}-other`}>Permitir “Otro”</FieldLabel>
         </Field>
       </FieldGroup>
-      {localError ? <FieldError>{localError}</FieldError> : null}
+      {localError || textError || optionsError ? (
+        <FieldError id={`${id}-definition-error`}>
+          {localError ?? textError ?? optionsError}
+        </FieldError>
+      ) : null}
       {conflict ? (
         <ConflictBanner
           readVersion={conflict.readVersion}
@@ -1201,7 +1507,7 @@ function QuestionEditorDialog({
           Cancelar
         </Button>
         <Button
-          disabled={mutation.isPending || !text.trim()}
+          disabled={mutation.isPending}
           onClick={() => {
             setLocalError(null);
             mutation.mutate();
@@ -1257,6 +1563,10 @@ function QuestionCard({
     task.version,
   );
   const readOnly = Boolean(task.archivedAt);
+  const answerErrorId = `answer-${question.id}-error`;
+  useEffect(() => {
+    if (localError || answerMutation.error) focusFirstInvalid();
+  }, [localError, answerMutation.error]);
   const setChoice = (optionId: string, checked: boolean) =>
     setSelected(
       question.type === "single_choice"
@@ -1293,6 +1603,8 @@ function QuestionCard({
               {question.type === "single_choice" ? (
                 <RadioGroup
                   value={selected[0] ?? ""}
+                  aria-invalid={Boolean(localError)}
+                  aria-describedby={localError ? answerErrorId : undefined}
                   onValueChange={(value) => setSelected(value ? [value] : [])}
                 >
                   {question.options.map((option) => (
@@ -1309,6 +1621,8 @@ function QuestionCard({
                       id={option.id}
                       checked={selected.includes(option.id)}
                       disabled={readOnly}
+                      aria-invalid={Boolean(localError)}
+                      aria-describedby={localError ? answerErrorId : undefined}
                       onCheckedChange={(checked) => setChoice(option.id, checked)}
                     />
                     <FieldLabel htmlFor={option.id}>{option.label}</FieldLabel>
@@ -1316,7 +1630,7 @@ function QuestionCard({
                 ))
               )}
             </div>
-            <Field>
+            <Field data-invalid={Boolean(localError && question.type === "text")}>
               <FieldLabel htmlFor={`answer-${question.id}`}>
                 {question.type === "text"
                   ? "Respuesta"
@@ -1328,10 +1642,12 @@ function QuestionCard({
                 id={`answer-${question.id}`}
                 value={answer}
                 disabled={readOnly}
+                aria-invalid={Boolean(localError && question.type === "text")}
+                aria-describedby={localError ? answerErrorId : undefined}
                 onChange={(event) => setAnswer(event.target.value)}
               />
             </Field>
-            {localError ? <FieldError>{localError}</FieldError> : null}
+            {localError ? <FieldError id={answerErrorId}>{localError}</FieldError> : null}
             {conflict ? (
               <ConflictBanner
                 readVersion={conflict.readVersion}
@@ -1354,7 +1670,7 @@ function QuestionCard({
                 <ReasonActionDialog
                   trigger={<Button variant="outline">Descartar</Button>}
                   title="Descartar Question"
-                  description="La Question quedará resuelta sin respuesta. Si es la última abierta, la Task volverá a Draft."
+                  description="La Question quedará resuelta sin respuesta. Si es la última abierta, la Task volverá a Curating."
                   confirmLabel="Descartar"
                   action={(reason) =>
                     api.dismissQuestion(task.id, question.id, task.version, reason)
@@ -1411,6 +1727,7 @@ function AttachmentsSection({
   readonly reload: () => void;
 }) {
   const [files, setFiles] = useState<File[]>([]);
+  const [fileError, setFileError] = useState<string | null>(null);
   const queue = useUploadQueue();
   const job = queue.jobs.get(task.id);
   const remove = useMutation({
@@ -1442,8 +1759,25 @@ function AttachmentsSection({
                 id={`attachments-${task.id}`}
                 type="file"
                 multiple
-                onChange={(event) => setFiles(Array.from(event.target.files ?? []))}
+                accept={attachmentAccept}
+                aria-invalid={Boolean(fileError)}
+                aria-describedby={[
+                  `attachments-${task.id}-description`,
+                  fileError ? `attachments-${task.id}-error` : null,
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                onChange={(event) => {
+                  const selected = Array.from(event.target.files ?? []);
+                  const validation = validateAttachmentFiles(selected, task.attachments.length);
+                  setFileError(validation);
+                  setFiles(validation ? [] : selected);
+                }}
               />
+              <FieldDescription id={`attachments-${task.id}-description`}>
+                Quedan {Math.max(0, 10 - task.attachments.length)} de 10; máximo 25 MiB por fichero.
+              </FieldDescription>
+              <FieldError id={`attachments-${task.id}-error`}>{fileError}</FieldError>
             </Field>
             <Button
               disabled={!files.length || job?.running}
@@ -1454,6 +1788,32 @@ function AttachmentsSection({
             >
               <FileUpIcon /> Subir secuencialmente
             </Button>
+            {files.length ? (
+              <ul className="grid gap-2 sm:col-span-2" aria-label="Attachments preparados">
+                {files.map((file, index) => (
+                  <li
+                    key={`${file.name}-${file.size}-${index}`}
+                    className="flex min-w-0 items-center gap-3 rounded-md border p-2 text-sm"
+                  >
+                    <span className="min-w-0 flex-1 truncate">
+                      {file.name} · {formatFileSize(file.size)}
+                    </span>
+                    <Badge variant="outline">Pendiente</Badge>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={`Retirar ${file.name}`}
+                      onClick={() =>
+                        setFiles((current) => current.filter((_, fileIndex) => fileIndex !== index))
+                      }
+                    >
+                      <Trash2Icon />
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
           </div>
         ) : null}
         {job ? (
@@ -1469,12 +1829,27 @@ function AttachmentsSection({
               <span className="ml-auto text-sm text-muted-foreground">{progress}%</span>
             </Progress>
             <ul className="grid gap-1 text-sm" aria-live="polite">
-              {job.entries.map((entry) => (
-                <li key={entry.file.name} className="flex items-center justify-between gap-3">
-                  <span className="truncate">{entry.file.name}</span>
+              {job.entries.map((entry, index) => (
+                <li
+                  key={`${entry.file.name}-${entry.file.size}-${index}`}
+                  className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1"
+                >
+                  <span className="truncate">
+                    {entry.file.name} · {formatFileSize(entry.file.size)}
+                  </span>
                   <Badge variant={entry.status === "failed" ? "destructive" : "outline"}>
-                    {entry.status}
+                    {
+                      {
+                        pending: "Pendiente",
+                        uploading: "Subiendo",
+                        uploaded: "Subido",
+                        failed: "Fallido",
+                      }[entry.status]
+                    }
                   </Badge>
+                  {entry.error ? (
+                    <span className="col-span-2 text-xs text-destructive">{entry.error}</span>
+                  ) : null}
                 </li>
               ))}
             </ul>
@@ -1575,6 +1950,9 @@ function PrSection({
   });
   const conflict = preserveConflict(save.error, url, task.version);
   useEffect(() => setUrl(task.prUrl ?? ""), [task.prUrl]);
+  useEffect(() => {
+    if (save.error && !conflict) focusFirstInvalid();
+  }, [save.error, conflict]);
   return (
     <Card>
       <CardHeader>
@@ -1605,7 +1983,7 @@ function PrSection({
         ) : null}
         {!task.archivedAt ? (
           <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
-            <Field className="min-w-0">
+            <Field className="min-w-0" data-invalid={Boolean(apiFieldMessage(save.error, "prUrl"))}>
               <FieldLabel className="sr-only" htmlFor={`pr-${task.id}`}>
                 PR URL
               </FieldLabel>
@@ -1615,8 +1993,15 @@ function PrSection({
                 maxLength={2048}
                 placeholder="https://…"
                 value={url}
+                aria-invalid={Boolean(apiFieldMessage(save.error, "prUrl"))}
+                aria-describedby={
+                  apiFieldMessage(save.error, "prUrl") ? `pr-${task.id}-error` : undefined
+                }
                 onChange={(event) => setUrl(event.target.value)}
               />
+              <FieldError id={`pr-${task.id}-error`}>
+                {apiFieldMessage(save.error, "prUrl")}
+              </FieldError>
             </Field>
             <Button
               disabled={save.isPending || !url || url === task.prUrl}
@@ -1634,81 +2019,6 @@ function PrSection({
           </div>
         ) : null}
         {save.isError && !conflict ? <ErrorNotice error={save.error} /> : null}
-      </CardContent>
-    </Card>
-  );
-}
-
-function _ActivitySection({
-  taskId,
-  initial,
-  error,
-  loading,
-}: {
-  readonly taskId: string;
-  readonly initial: Awaited<ReturnType<typeof api.activity>> | undefined;
-  readonly error: unknown;
-  readonly loading: boolean;
-}) {
-  const [pages, setPages] = useState(initial ? [initial] : []);
-  const cursor = pages.at(-1)?.nextCursor;
-  const more = useMutation({
-    mutationFn: () => api.activity(taskId, cursor ?? undefined),
-    onSuccess: (page) => setPages((current) => [...current, page]),
-  });
-  useEffect(() => {
-    if (initial) setPages([initial]);
-  }, [initial]);
-  if (loading) return <Loading label="Cargando actividad" />;
-  if (error) return <ErrorNotice error={error} />;
-  const events = pages.flatMap((page) => page.items);
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Activity</CardTitle>
-        <CardDescription>Historial append-only de mutaciones relevantes.</CardDescription>
-      </CardHeader>
-      <CardContent>
-        {events.length === 0 ? (
-          <Empty title="Sin actividad">Todavía no se han registrado eventos.</Empty>
-        ) : (
-          <ol className="relative ml-2 grid gap-5 border-l pl-5">
-            {events.map((event) => (
-              <li key={event.id} className="relative">
-                <span className="absolute -left-[1.55rem] top-1.5 size-2 rounded-full bg-primary ring-4 ring-background" />
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div>
-                    <strong className="text-sm">{eventLabel(event.type)}</strong>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      Actor: {event.actorType}
-                      {typeof event.metadata.reason === "string"
-                        ? ` · ${event.metadata.reason}`
-                        : ""}
-                      {typeof event.metadata.from === "string" &&
-                      typeof event.metadata.to === "string"
-                        ? ` · ${event.metadata.from} → ${event.metadata.to}`
-                        : ""}
-                    </p>
-                  </div>
-                  <time className="text-xs text-muted-foreground">
-                    {formatDate(event.createdAt)}
-                  </time>
-                </div>
-              </li>
-            ))}
-          </ol>
-        )}
-        {cursor ? (
-          <Button
-            className="mt-5"
-            variant="outline"
-            disabled={more.isPending}
-            onClick={() => more.mutate()}
-          >
-            {more.isPending ? "Cargando…" : "Cargar más"}
-          </Button>
-        ) : null}
-        {more.isError ? <ErrorNotice error={more.error} /> : null}
       </CardContent>
     </Card>
   );
@@ -1781,28 +2091,11 @@ function ReasonActionDialog<T>({
   );
 }
 
-function explicitTransition(task: Task): TaskStatus | null {
-  if (task.archivedAt) return null;
-  if (task.status === "draft") return "curating";
-  if (task.status === "curating") return "ready";
-  if (task.status === "ready") return "implementing";
-  if (task.status === "implementing") return "done";
-  return null;
-}
 function canReady(task: Task): boolean {
   return (
     task.curatorSpec.trim().length > 0 &&
     !task.questions.some((question) => question.status === "open")
   );
-}
-function transitionLabel(status: TaskStatus): string {
-  return status === "curating"
-    ? "Enviar a curator"
-    : status === "ready"
-      ? "Marcar Ready"
-      : status === "implementing"
-        ? "Claim Task"
-        : "Completar Task";
 }
 function transitionDescription(from: TaskStatus, to: TaskStatus): string {
   return `Confirma la transición ${from} → ${to}. La versión de la Task se incrementará una vez.`;
@@ -1825,22 +2118,34 @@ function formatBytes(value: number): string {
       ? `${(value / 1024).toFixed(1)} KiB`
       : `${(value / 1048576).toFixed(1)} MiB`;
 }
-function eventLabel(type: string): string {
-  const labels: Record<string, string> = {
-    task_created: "Task creada",
-    task_updated: "Task actualizada",
-    spec_updated: "Curator Spec actualizada",
-    status_changed: "Estado cambiado",
-    question_created: "Question creada",
-    question_updated: "Question actualizada",
-    question_answered: "Question respondida",
-    question_dismissed: "Question descartada",
-    question_reopened: "Question reabierta",
-    attachment_added: "Attachment añadido",
-    attachment_removed: "Attachment eliminado",
-    pr_url_updated: "PR URL actualizada",
-    task_archived: "Task archivada",
-    task_unarchived: "Task restaurada",
+
+function taskStatusGuidance(task: Task): string {
+  if (task.archivedAt) return "Task archivada · historial disponible en modo de solo lectura.";
+  if (task.status === "draft") return "Prepara la petición y envíala a Curation.";
+  if (task.status === "curating") return "Curation en curso; revisa el Run o confirma Ready.";
+  if (task.status === "blocked") return "Hay Questions abiertas que requieren respuesta.";
+  if (task.status === "ready") return "La Task puede reclamarse para Implementation.";
+  if (task.status === "implementing") return "Implementation en curso; revisa el Run vigente.";
+  return "Trabajo completado; puedes solicitar un cambio incremental.";
+}
+
+function runKindLabel(kind: Run["kind"]): string {
+  return kind === "curation" ? "Curation" : "Implementation";
+}
+
+function runStatusLabel(status: Run["status"]): string {
+  const labels: Record<Run["status"], string> = {
+    queued: "En cola",
+    preparing: "Preparando",
+    running: "En ejecución",
+    publishing: "Publicando",
+    succeeded: "Completado",
+    failed: "Fallido",
+    cancelled: "Cancelado",
   };
-  return labels[type] ?? type.replaceAll("_", " ");
+  return labels[status];
+}
+
+function questionStatusLabel(status: Question["status"]): string {
+  return status === "open" ? "Abierta" : status === "answered" ? "Respondida" : "Descartada";
 }

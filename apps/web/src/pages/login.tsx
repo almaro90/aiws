@@ -1,7 +1,7 @@
 import { useMutation } from "@tanstack/react-query";
-import { LockKeyholeIcon } from "lucide-react";
 import { useId } from "react";
 import { useForm } from "react-hook-form";
+import { CopyValue } from "../components/common.tsx";
 import { Alert, AlertDescription, AlertTitle } from "../components/ui/alert.tsx";
 import { Button } from "../components/ui/button.tsx";
 import {
@@ -32,15 +32,20 @@ export function LoginPage({ redirect }: { readonly redirect?: string | undefined
     mutationFn: api.login,
     onSuccess: () => window.location.assign(safeRedirect(redirect, window.location.origin)),
   });
-  const rateLimited = login.error instanceof ApiError && login.error.status === 429;
+  const loginError = login.isError ? classifyLoginError(login.error) : null;
+  const apiError = login.error instanceof ApiError ? login.error : null;
 
   return (
     <main className="grid min-h-svh place-items-center bg-[radial-gradient(circle_at_top,var(--accent),transparent_42%)] px-4 py-10">
       <Card className="w-full max-w-sm shadow-lg">
         <CardHeader>
-          <div className="mb-3 grid size-10 place-items-center rounded-xl bg-primary text-primary-foreground">
-            <LockKeyholeIcon className="size-5" />
-          </div>
+          <img
+            src="/aiws-logo.png"
+            alt=""
+            aria-hidden="true"
+            data-brand-logo="login"
+            className="mb-3 size-12 object-contain"
+          />
           <CardTitle className="text-xl">Iniciar sesión</CardTitle>
           <CardDescription>Accede al workspace local de AIWS.</CardDescription>
         </CardHeader>
@@ -71,15 +76,14 @@ export function LoginPage({ redirect }: { readonly redirect?: string | undefined
                 <FieldError id={`${passwordId}-error`} errors={[errors.password]} />
               </Field>
             </FieldGroup>
-            {login.isError ? (
+            {loginError ? (
               <Alert variant="destructive">
-                <AlertTitle>
-                  {rateLimited ? "Demasiados intentos" : "No se pudo iniciar sesión"}
-                </AlertTitle>
-                <AlertDescription>
-                  {rateLimited
-                    ? "Espera antes de volver a intentarlo."
-                    : "Usuario o contraseña incorrectos."}
+                <AlertTitle>{loginError.title}</AlertTitle>
+                <AlertDescription className="space-y-2">
+                  <p>{loginError.description}</p>
+                  {apiError?.requestId ? (
+                    <CopyValue label="Request ID" value={apiError.requestId} />
+                  ) : null}
                 </AlertDescription>
               </Alert>
             ) : null}
@@ -91,6 +95,41 @@ export function LoginPage({ redirect }: { readonly redirect?: string | undefined
       </Card>
     </main>
   );
+}
+
+export interface LoginErrorPresentation {
+  readonly kind: "credentials" | "rate_limit" | "network" | "unexpected";
+  readonly title: string;
+  readonly description: string;
+}
+
+export function classifyLoginError(error: unknown): LoginErrorPresentation {
+  if (error instanceof ApiError && error.status === 401) {
+    return {
+      kind: "credentials",
+      title: "No se pudo iniciar sesión",
+      description: "Usuario o contraseña incorrectos.",
+    };
+  }
+  if (error instanceof ApiError && error.status === 429) {
+    return {
+      kind: "rate_limit",
+      title: "Demasiados intentos",
+      description: "Espera antes de volver a intentarlo.",
+    };
+  }
+  if (error instanceof ApiError && error.status === 0) {
+    return {
+      kind: "network",
+      title: "No se puede contactar con AIWS",
+      description: "Comprueba la conexión y vuelve a intentarlo.",
+    };
+  }
+  return {
+    kind: "unexpected",
+    title: "No se pudo iniciar sesión",
+    description: "AIWS ha devuelto un error inesperado. Vuelve a intentarlo.",
+  };
 }
 
 export function safeRedirect(value: string | undefined, origin: string): string {

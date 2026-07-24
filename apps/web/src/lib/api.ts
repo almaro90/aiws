@@ -73,15 +73,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
   if (!response.ok) {
     const body = await response.json().catch(() => null);
-    if (
-      response.status === 401 &&
-      path !== "/auth/login" &&
-      path !== "/auth/session" &&
-      typeof window !== "undefined"
-    ) {
-      const redirect = `${window.location.pathname}${window.location.search}`;
-      window.location.assign(`/login?redirect=${encodeURIComponent(redirect)}`);
-    }
+    handleUnauthorized(response.status, path);
     throw mapApiError(response.status, body);
   }
   if (response.status === 204) return undefined as T;
@@ -97,13 +89,28 @@ async function requestText(path: string): Promise<string> {
   }
   if (!response.ok) {
     const body = await response.json().catch(() => null);
-    if (response.status === 401 && typeof window !== "undefined") {
-      const redirect = `${window.location.pathname}${window.location.search}`;
-      window.location.assign(`/login?redirect=${encodeURIComponent(redirect)}`);
-    }
+    handleUnauthorized(response.status, path);
     throw mapApiError(response.status, body);
   }
   return response.text();
+}
+
+const unauthorizedRedirectExclusions = new Set(["/auth/login", "/auth/session"]);
+
+export function unauthorizedRedirect(
+  status: number,
+  path: string,
+  location: Pick<Location, "pathname" | "search" | "hash">,
+): string | null {
+  if (status !== 401 || unauthorizedRedirectExclusions.has(path)) return null;
+  const returnTo = `${location.pathname}${location.search}${location.hash}`;
+  return `/login?redirect=${encodeURIComponent(returnTo)}`;
+}
+
+function handleUnauthorized(status: number, path: string): void {
+  if (typeof window === "undefined") return;
+  const target = unauthorizedRedirect(status, path, window.location);
+  if (target !== null) window.location.replace(target);
 }
 
 function json(method: string, body?: unknown, version?: number): RequestInit {

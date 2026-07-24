@@ -16,6 +16,12 @@ export interface UploadJob {
   readonly running: boolean;
 }
 
+export function retryUploadEntries(entries: readonly UploadEntry[]): UploadEntry[] {
+  return entries.map((entry) =>
+    entry.status === "failed" ? { file: entry.file, status: "pending" as const } : entry,
+  );
+}
+
 interface UploadQueueValue {
   readonly jobs: ReadonlyMap<string, UploadJob>;
   readonly start: (taskId: string, version: number, files: readonly File[]) => void;
@@ -87,13 +93,7 @@ export function UploadQueueProvider({ children }: { readonly children: ReactNode
     (taskId: string, version: number) => {
       const job = jobs.get(taskId);
       if (!job || job.running) return;
-      void run(
-        taskId,
-        version,
-        job.entries
-          .filter((entry) => entry.status === "failed")
-          .map((entry) => ({ file: entry.file, status: "pending" as const })),
-      );
+      void run(taskId, version, retryUploadEntries(job.entries));
     },
     [jobs, run],
   );

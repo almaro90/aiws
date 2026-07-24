@@ -1,22 +1,28 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { ArchiveIcon, ArrowRightIcon, PlusIcon, RotateCcwIcon } from "lucide-react";
-import { useId, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { toast } from "sonner";
 import {
+  ActiveFilters,
   ConfirmAction,
+  CopyValue,
   Empty,
   ErrorNotice,
   formatDate,
+  LoadMoreFooter,
   Loading,
+  PageBreadcrumb,
   PageHeader,
+  StatusBadge,
   buttonVariants,
 } from "../components/common.tsx";
 import { Badge } from "../components/ui/badge.tsx";
 import { Button } from "../components/ui/button.tsx";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card.tsx";
 import { Checkbox } from "../components/ui/checkbox.tsx";
+import { Combobox } from "../components/ui/combobox.tsx";
 import {
   Field,
   FieldDescription,
@@ -41,7 +47,10 @@ import {
   TableRow,
 } from "../components/ui/table.tsx";
 import { Textarea } from "../components/ui/textarea.tsx";
+import { Switch } from "../components/ui/switch.tsx";
 import { api, apiFieldMessage } from "../lib/api.ts";
+import { focusFirstInvalid, UnsavedChangesBadge, UnsavedChangesGuard } from "../lib/form-state.tsx";
+import { mergePageItems, parseProjectFilters, serializeProjectFilters } from "../lib/query.ts";
 import { cn } from "../lib/utils.ts";
 import type { Project } from "../lib/types.ts";
 
@@ -57,36 +66,34 @@ const providerOptions = [
   { value: "github", label: "GitHub" },
   { value: "azure_devops", label: "Azure DevOps" },
   { value: "gitlab", label: "GitLab" },
-  { value: "other", label: "Other" },
+  { value: "other", label: "Otro" },
 ];
 const providerFilterOptions = [{ value: "all", label: "Todos los providers" }, ...providerOptions];
 const accountScopeOptions = [
   { value: "personal", label: "Personal" },
-  { value: "work", label: "Work" },
+  { value: "work", label: "Trabajo" },
 ];
 const accountScopeFilterOptions = [
   { value: "all", label: "Todos los ámbitos" },
   ...accountScopeOptions,
 ];
 
+interface ProjectFilterState {
+  gitProvider: string;
+  accountScope: string;
+  archived: boolean;
+}
+
 export function ProjectsPage({ search }: { readonly search: Record<string, unknown> }) {
   const archivedId = useId();
   const providerId = useId();
   const scopeId = useId();
   const navigate = useNavigate();
-  const archived = search.archived === true || search.archived === "true";
-  const initialProvider =
-    typeof search.gitProvider === "string" && search.gitProvider ? search.gitProvider : "all";
-  const initialScope =
-    typeof search.accountScope === "string" && search.accountScope ? search.accountScope : "all";
-  const [gitProvider, setGitProvider] = useState(initialProvider);
-  const [accountScope, setAccountScope] = useState(initialScope);
-  const [showArchived, setShowArchived] = useState(archived);
-  const params = new URLSearchParams();
-  if (archived) params.set("archived", "true");
-  if (initialProvider !== "all") params.set("gitProvider", initialProvider);
-  if (initialScope !== "all") params.set("accountScope", initialScope);
-  const suffix = params.size ? `?${params}` : "";
+  const filters = useMemo(() => parseProjectFilters(search), [search]);
+  const applied = projectFilterState(filters);
+  const [draft, setDraft] = useState<ProjectFilterState>(() => applied);
+  const suffix = serializeProjectFilters(filters);
+  useEffect(() => setDraft(projectFilterState(filters)), [filters]);
   const query = useQuery({ queryKey: ["projects", suffix], queryFn: () => api.projects(suffix) });
   const queryClient = useQueryClient();
   const more = useMutation({
@@ -95,20 +102,45 @@ export function ProjectsPage({ search }: { readonly search: Record<string, unkno
     onSuccess: (page) =>
       query.data &&
       queryClient.setQueryData(["projects", suffix], {
-        items: [...query.data.items, ...page.items],
+        items: mergePageItems(query.data.items, page.items),
         nextCursor: page.nextCursor,
       }),
   });
 
-  const applyFilters = () =>
-    void navigate({
+  const navigateToFilters = (next: ProjectFilterState) =>
+    navigate({
       to: "/projects",
       search: {
-        gitProvider: gitProvider === "all" ? undefined : gitProvider,
-        accountScope: accountScope === "all" ? undefined : accountScope,
-        archived: showArchived || undefined,
+        gitProvider: next.gitProvider === "all" ? undefined : next.gitProvider,
+        accountScope: next.accountScope === "all" ? undefined : next.accountScope,
+        archived: next.archived || undefined,
       },
     });
+  const clear = () => {
+    setDraft(defaultProjectFilterState());
+    void navigate({ to: "/projects", search: {} });
+  };
+  const activeFilters = [
+    ...(applied.gitProvider !== "all"
+      ? [{ key: "gitProvider", label: `Proveedor: ${providerLabel(applied.gitProvider)}` }]
+      : []),
+    ...(applied.accountScope !== "all"
+      ? [
+          {
+            key: "accountScope",
+            label: `Ámbito: ${applied.accountScope === "work" ? "Trabajo" : "Personal"}`,
+          },
+        ]
+      : []),
+    ...(applied.archived ? [{ key: "archived", label: "Archivados" }] : []),
+  ];
+  const removeFilter = (key: string) => {
+    const next = { ...applied };
+    if (key === "gitProvider") next.gitProvider = "all";
+    if (key === "accountScope") next.accountScope = "all";
+    if (key === "archived") next.archived = false;
+    void navigateToFilters(next);
+  };
 
   return (
     <>
@@ -122,63 +154,62 @@ export function ProjectsPage({ search }: { readonly search: Record<string, unkno
         }
       />
       <Card size="sm">
-        <CardContent className="grid gap-3 md:grid-cols-[1fr_1fr_auto_auto] md:items-end">
-          <Field>
-            <FieldLabel htmlFor={providerId}>Git provider</FieldLabel>
-            <Select
-              items={providerFilterOptions}
-              value={gitProvider}
-              onValueChange={(value) => setGitProvider(value ?? "all")}
-            >
-              <SelectTrigger id={providerId} className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {providerFilterOptions.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
-          <Field>
-            <FieldLabel htmlFor={scopeId}>Account scope</FieldLabel>
-            <Select
-              items={accountScopeFilterOptions}
-              value={accountScope}
-              onValueChange={(value) => setAccountScope(value ?? "all")}
-            >
-              <SelectTrigger id={scopeId} className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {accountScopeFilterOptions.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
-          <Field orientation="horizontal" className="min-h-8">
-            <Checkbox id={archivedId} checked={showArchived} onCheckedChange={setShowArchived} />
-            <FieldLabel htmlFor={archivedId}>Mostrar archivados</FieldLabel>
-          </Field>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              onClick={() => {
-                setGitProvider("all");
-                setAccountScope("all");
-                setShowArchived(false);
-                void navigate({ to: "/projects", search: {} });
-              }}
-            >
-              Limpiar
-            </Button>
-            <Button onClick={applyFilters}>Aplicar</Button>
+        <CardContent className="grid gap-3">
+          <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto_auto] md:items-end">
+            <Field>
+              <FieldLabel htmlFor={providerId}>Proveedor Git</FieldLabel>
+              <Select
+                items={providerFilterOptions}
+                value={draft.gitProvider}
+                onValueChange={(value) => setDraft({ ...draft, gitProvider: value ?? "all" })}
+              >
+                <SelectTrigger id={providerId} className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {providerFilterOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor={scopeId}>Ámbito de cuenta</FieldLabel>
+              <Select
+                items={accountScopeFilterOptions}
+                value={draft.accountScope}
+                onValueChange={(value) => setDraft({ ...draft, accountScope: value ?? "all" })}
+              >
+                <SelectTrigger id={scopeId} className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {accountScopeFilterOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field orientation="horizontal" className="min-h-8">
+              <Checkbox
+                id={archivedId}
+                checked={draft.archived}
+                onCheckedChange={(archived) => setDraft({ ...draft, archived })}
+              />
+              <FieldLabel htmlFor={archivedId}>Mostrar archivados</FieldLabel>
+            </Field>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={clear}>
+                Limpiar filtros
+              </Button>
+              <Button onClick={() => void navigateToFilters(draft)}>Aplicar</Button>
+            </div>
           </div>
+          <ActiveFilters filters={activeFilters} onRemove={removeFilter} onClear={clear} />
         </CardContent>
       </Card>
 
@@ -200,21 +231,26 @@ export function ProjectsPage({ search }: { readonly search: Record<string, unkno
       ) : (
         <ProjectList projects={query.data.items} />
       )}
-      {query.data?.nextCursor ? (
-        <Button
-          className="justify-self-center"
-          variant="outline"
-          disabled={more.isPending}
-          onClick={() => more.mutate(query.data.nextCursor as string)}
-        >
-          {more.isPending ? "Cargando…" : "Cargar más"}
-        </Button>
+      {query.data?.items.length ? (
+        <LoadMoreFooter
+          count={query.data.items.length}
+          hasMore={Boolean(query.data.nextCursor)}
+          pending={more.isPending}
+          error={more.error}
+          onLoadMore={() => query.data?.nextCursor && more.mutate(query.data.nextCursor)}
+        />
       ) : null}
     </>
   );
 }
 
-function ProjectAutomation({ project }: { readonly project: Project }) {
+function ProjectAutomation({
+  project,
+  onDirtyChange,
+}: {
+  readonly project: Project;
+  readonly onDirtyChange: (dirty: boolean) => void;
+}) {
   const client = useQueryClient();
   const profiles = useQuery({ queryKey: ["agent-profiles"], queryFn: api.agentProfiles });
   const branches = useQuery({
@@ -232,14 +268,39 @@ function ProjectAutomation({ project }: { readonly project: Project }) {
   const [scheduleCron, setScheduleCron] = useState(project.scheduleCron ?? "");
   const [scheduleTimezone, setScheduleTimezone] = useState(project.scheduleTimezone);
   const [maxConcurrency, setMaxConcurrency] = useState(String(project.maxConcurrency));
+  const [automationEnabled, setAutomationEnabled] = useState(project.automationEnabled);
   const profileOptions = [
     { value: "none", label: "Sin perfil" },
     ...(profiles.data
       ?.filter((profile) => profile.enabled)
       .map((profile) => ({ value: profile.id, label: profile.name })) ?? []),
   ];
+  const dirty =
+    defaultBranch !== (project.defaultBranch ?? "") ||
+    curationAgentProfileId !== (project.curationAgentProfileId ?? "none") ||
+    implementationAgentProfileId !== (project.implementationAgentProfileId ?? "none") ||
+    scheduleCron !== (project.scheduleCron ?? "") ||
+    scheduleTimezone !== project.scheduleTimezone ||
+    maxConcurrency !== String(project.maxConcurrency) ||
+    automationEnabled !== project.automationEnabled;
+  useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange]);
+  useEffect(() => {
+    setDefaultBranch(project.defaultBranch ?? "");
+    setCurationAgentProfileId(project.curationAgentProfileId ?? "none");
+    setImplementationAgentProfileId(project.implementationAgentProfileId ?? "none");
+    setScheduleCron(project.scheduleCron ?? "");
+    setScheduleTimezone(project.scheduleTimezone);
+    setMaxConcurrency(String(project.maxConcurrency));
+    setAutomationEnabled(project.automationEnabled);
+  }, [project]);
+  const localError =
+    Number.isInteger(Number(maxConcurrency)) &&
+    Number(maxConcurrency) >= 1 &&
+    Number(maxConcurrency) <= 16
+      ? null
+      : "La concurrencia debe ser un entero entre 1 y 16.";
   const save = useMutation({
-    mutationFn: (automationEnabled: boolean) =>
+    mutationFn: () =>
       api.updateProject(project.id, {
         automationEnabled,
         ...(project.repositoryMode === "managed" ? { defaultBranch } : {}),
@@ -257,158 +318,196 @@ function ProjectAutomation({ project }: { readonly project: Project }) {
       );
     },
   });
+  useEffect(() => {
+    if (save.error) focusFirstInvalid();
+  }, [save.error]);
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Automatización de implementación</CardTitle>
-      </CardHeader>
-      <CardContent className="grid gap-4">
-        <p className="text-sm text-muted-foreground">
-          Curation e Implementation pueden usar perfiles distintos. El horario solo se aplica a
-          Implementation; el límite de concurrencia se comparte entre ambos tipos de Run.
-        </p>
-        {project.repositoryMode === "managed" ? (
-          <Field data-invalid={Boolean(apiFieldMessage(save.error, "defaultBranch"))}>
-            <FieldLabel>Rama de referencia por defecto</FieldLabel>
-            <Select
-              items={
-                branches.data?.map((branch) => ({
-                  value: branch.name,
-                  label: branch.name,
-                })) ?? []
-              }
-              value={defaultBranch || null}
-              disabled={branches.isLoading || branches.isError}
-              onValueChange={(value) => setDefaultBranch(value ?? "")}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue
-                  placeholder={branches.isLoading ? "Cargando ramas…" : "Seleccionar…"}
-                />
-              </SelectTrigger>
-              <SelectContent>
-                {branches.data?.map((branch) => (
-                  <SelectItem key={branch.name} value={branch.name}>
-                    {branch.name}
-                    {branch.protected ? " · protegida" : ""}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <FieldDescription>
-              Se copiará en las nuevas Tasks. Cambiarla no modifica Tasks ya creadas.
-            </FieldDescription>
-            <FieldError>{apiFieldMessage(save.error, "defaultBranch")}</FieldError>
-          </Field>
-        ) : null}
-        {branches.isError ? (
-          <ErrorNotice error={branches.error} retry={() => void branches.refetch()} />
-        ) : null}
-        <div className="grid gap-4 sm:grid-cols-2">
+    <section className="grid gap-4" aria-labelledby={`configuration-${project.id}`}>
+      <div className="flex flex-wrap items-center gap-3">
+        <h2 id={`configuration-${project.id}`} className="text-xl font-semibold">
+          Configuración
+        </h2>
+        <UnsavedChangesBadge dirty={dirty} />
+      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Curation</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-4">
+          <p className="text-sm text-muted-foreground">
+            Curation usa su propio perfil y puede funcionar aunque Implementation esté desactivada.
+          </p>
+          {project.repositoryMode === "managed" ? (
+            <Field data-invalid={Boolean(apiFieldMessage(save.error, "defaultBranch"))}>
+              <FieldLabel htmlFor={`default-branch-${project.id}`}>
+                Base Branch por defecto
+              </FieldLabel>
+              <Combobox
+                id={`default-branch-${project.id}`}
+                options={
+                  branches.data?.map((branch) => ({
+                    value: branch.name,
+                    label: branch.name,
+                    ...(branch.protected ? { description: "Protegida" } : {}),
+                  })) ?? []
+                }
+                value={defaultBranch}
+                disabled={branches.isLoading || branches.isError}
+                invalid={Boolean(apiFieldMessage(save.error, "defaultBranch"))}
+                aria-describedby={[
+                  `default-branch-description-${project.id}`,
+                  apiFieldMessage(save.error, "defaultBranch")
+                    ? `default-branch-error-${project.id}`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                placeholder={branches.isLoading ? "Cargando ramas…" : "Seleccionar Base Branch…"}
+                searchPlaceholder="Buscar rama…"
+                onValueChange={setDefaultBranch}
+              />
+              <FieldDescription id={`default-branch-description-${project.id}`}>
+                Se copiará en las nuevas Tasks. Cambiarla no modifica Tasks ya creadas.
+              </FieldDescription>
+              <FieldError id={`default-branch-error-${project.id}`}>
+                {apiFieldMessage(save.error, "defaultBranch")}
+              </FieldError>
+            </Field>
+          ) : null}
+          {branches.isError ? (
+            <ErrorNotice error={branches.error} retry={() => void branches.refetch()} />
+          ) : null}
           <Field data-invalid={Boolean(apiFieldMessage(save.error, "curationAgentProfileId"))}>
-            <FieldLabel>Perfil de Curation</FieldLabel>
-            <Select
-              items={profileOptions}
+            <FieldLabel htmlFor={`curation-profile-${project.id}`}>Perfil de Curation</FieldLabel>
+            <Combobox
+              id={`curation-profile-${project.id}`}
+              options={profileOptions}
               value={curationAgentProfileId}
-              onValueChange={(value) => setCurationAgentProfileId(value ?? "none")}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {profileOptions.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <FieldError>{apiFieldMessage(save.error, "curationAgentProfileId")}</FieldError>
+              searchPlaceholder="Buscar perfil…"
+              invalid={Boolean(apiFieldMessage(save.error, "curationAgentProfileId"))}
+              aria-describedby={
+                apiFieldMessage(save.error, "curationAgentProfileId")
+                  ? `curation-profile-error-${project.id}`
+                  : undefined
+              }
+              onValueChange={setCurationAgentProfileId}
+            />
+            <FieldError id={`curation-profile-error-${project.id}`}>
+              {apiFieldMessage(save.error, "curationAgentProfileId")}
+            </FieldError>
+          </Field>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>Implementation e infraestructura</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-4">
+          <Field orientation="horizontal">
+            <Switch
+              id={`implementation-enabled-${project.id}`}
+              checked={automationEnabled}
+              onCheckedChange={setAutomationEnabled}
+              aria-describedby={`implementation-enabled-description-${project.id}`}
+            />
+            <div>
+              <FieldLabel htmlFor={`implementation-enabled-${project.id}`}>
+                Implementation {automationEnabled ? "activada" : "desactivada"}
+              </FieldLabel>
+              <FieldDescription id={`implementation-enabled-description-${project.id}`}>
+                El cambio solo se aplica al pulsar Guardar configuración.
+              </FieldDescription>
+            </div>
           </Field>
           <Field
             data-invalid={Boolean(apiFieldMessage(save.error, "implementationAgentProfileId"))}
           >
-            <FieldLabel>Perfil de Implementation</FieldLabel>
-            <Select
-              items={profileOptions}
+            <FieldLabel htmlFor={`implementation-profile-${project.id}`}>
+              Perfil de Implementation
+            </FieldLabel>
+            <Combobox
+              id={`implementation-profile-${project.id}`}
+              options={profileOptions}
               value={implementationAgentProfileId}
-              onValueChange={(value) => setImplementationAgentProfileId(value ?? "none")}
+              searchPlaceholder="Buscar perfil…"
+              invalid={Boolean(apiFieldMessage(save.error, "implementationAgentProfileId"))}
+              aria-describedby={
+                apiFieldMessage(save.error, "implementationAgentProfileId")
+                  ? `implementation-profile-error-${project.id}`
+                  : undefined
+              }
+              onValueChange={setImplementationAgentProfileId}
+            />
+            <FieldError id={`implementation-profile-error-${project.id}`}>
+              {apiFieldMessage(save.error, "implementationAgentProfileId")}
+            </FieldError>
+          </Field>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <Field>
+              <FieldLabel htmlFor={`cron-${project.id}`}>Cron de Implementation</FieldLabel>
+              <Input
+                id={`cron-${project.id}`}
+                className="font-mono"
+                placeholder="*/15 * * * *"
+                value={scheduleCron}
+                onChange={(event) => setScheduleCron(event.target.value)}
+              />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor={`timezone-${project.id}`}>Timezone</FieldLabel>
+              <Input
+                id={`timezone-${project.id}`}
+                value={scheduleTimezone}
+                onChange={(event) => setScheduleTimezone(event.target.value)}
+              />
+            </Field>
+            <Field
+              data-invalid={Boolean(localError || apiFieldMessage(save.error, "maxConcurrency"))}
             >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {profileOptions.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <FieldError>{apiFieldMessage(save.error, "implementationAgentProfileId")}</FieldError>
-          </Field>
-        </div>
-        <div className="grid gap-4 sm:grid-cols-3">
-          <Field>
-            <FieldLabel>Cron (opcional)</FieldLabel>
-            <Input
-              className="font-mono"
-              placeholder="*/15 * * * *"
-              value={scheduleCron}
-              onChange={(event) => setScheduleCron(event.target.value)}
-            />
-          </Field>
-          <Field>
-            <FieldLabel>Timezone</FieldLabel>
-            <Input
-              value={scheduleTimezone}
-              onChange={(event) => setScheduleTimezone(event.target.value)}
-            />
-          </Field>
-          <Field>
-            <FieldLabel>Concurrencia</FieldLabel>
-            <Input
-              type="number"
-              min="1"
-              max="16"
-              value={maxConcurrency}
-              onChange={(event) => setMaxConcurrency(event.target.value)}
-            />
-          </Field>
-        </div>
-        {save.isError ? <ErrorNotice error={save.error} /> : null}
-        <div className="flex gap-2">
+              <FieldLabel htmlFor={`concurrency-${project.id}`}>Concurrencia compartida</FieldLabel>
+              <Input
+                id={`concurrency-${project.id}`}
+                type="number"
+                min="1"
+                max="16"
+                value={maxConcurrency}
+                onChange={(event) => setMaxConcurrency(event.target.value)}
+                aria-invalid={Boolean(localError || apiFieldMessage(save.error, "maxConcurrency"))}
+                aria-describedby={[
+                  `concurrency-description-${project.id}`,
+                  localError || apiFieldMessage(save.error, "maxConcurrency")
+                    ? `concurrency-error-${project.id}`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+              />
+              <FieldDescription id={`concurrency-description-${project.id}`}>
+                Afecta a Runs de Curation e Implementation.
+              </FieldDescription>
+              <FieldError id={`concurrency-error-${project.id}`}>
+                {localError ?? apiFieldMessage(save.error, "maxConcurrency")}
+              </FieldError>
+            </Field>
+          </div>
+          {save.isError ? <ErrorNotice error={save.error} /> : null}
           <Button
+            className="justify-self-start"
             disabled={
+              !dirty ||
               save.isPending ||
+              Boolean(localError) ||
+              (automationEnabled && implementationAgentProfileId === "none") ||
               (project.repositoryMode === "managed" &&
                 (branches.isLoading || branches.isError || !defaultBranch))
             }
-            onClick={() => save.mutate(project.automationEnabled)}
+            onClick={() => save.mutate()}
           >
             Guardar configuración
           </Button>
-          {!project.automationEnabled ? (
-            <Button
-              variant="outline"
-              disabled={
-                save.isPending ||
-                implementationAgentProfileId === "none" ||
-                (project.repositoryMode === "managed" &&
-                  (branches.isLoading || branches.isError || !defaultBranch))
-              }
-              onClick={() => save.mutate(true)}
-            >
-              Activar Implementation
-            </Button>
-          ) : (
-            <Button variant="outline" disabled={save.isPending} onClick={() => save.mutate(false)}>
-              Desactivar Implementation
-            </Button>
-          )}
-        </div>
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+    </section>
   );
 }
 
@@ -420,9 +519,9 @@ function ProjectList({ projects }: { readonly projects: readonly Project[] }) {
           <TableHeader>
             <TableRow>
               <TableHead>Project</TableHead>
-              <TableHead>Repository path</TableHead>
-              <TableHead>Provider</TableHead>
-              <TableHead>Scope</TableHead>
+              <TableHead>Ruta del repositorio</TableHead>
+              <TableHead>Proveedor Git</TableHead>
+              <TableHead>Ámbito</TableHead>
               <TableHead>Actualizado</TableHead>
               <TableHead>
                 <span className="sr-only">Abrir</span>
@@ -434,7 +533,7 @@ function ProjectList({ projects }: { readonly projects: readonly Project[] }) {
               <TableRow key={project.id}>
                 <TableCell>
                   <Link
-                    className="font-medium hover:underline"
+                    className="block max-w-64 truncate font-medium hover:underline"
                     to="/projects/$projectId"
                     params={{ projectId: project.id }}
                   >
@@ -445,6 +544,9 @@ function ProjectList({ projects }: { readonly projects: readonly Project[] }) {
                       Archivado
                     </Badge>
                   ) : null}
+                  <div className="mt-1">
+                    <CopyValue label="Project ID" value={project.id} />
+                  </div>
                 </TableCell>
                 <TableCell
                   className="max-w-72 truncate font-mono text-xs"
@@ -452,8 +554,13 @@ function ProjectList({ projects }: { readonly projects: readonly Project[] }) {
                 >
                   {project.repositoryPath}
                 </TableCell>
-                <TableCell>{project.gitProvider}</TableCell>
-                <TableCell>{project.accountScope}</TableCell>
+                <TableCell>
+                  <span className="block">{providerLabel(project.gitProvider)}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {project.repositoryMode === "managed" ? "Gestionado" : "Local"}
+                  </span>
+                </TableCell>
+                <TableCell>{scopeLabel(project.accountScope)}</TableCell>
                 <TableCell className="whitespace-nowrap text-muted-foreground">
                   {formatDate(project.updatedAt)}
                 </TableCell>
@@ -474,23 +581,36 @@ function ProjectList({ projects }: { readonly projects: readonly Project[] }) {
       </Card>
       <div className="grid gap-3 md:hidden">
         {projects.map((project) => (
-          <Link
+          <article
             key={project.id}
-            to="/projects/$projectId"
-            params={{ projectId: project.id }}
-            className="rounded-xl bg-card p-4 ring-1 ring-foreground/10 transition hover:ring-primary/40"
+            className="min-w-0 rounded-xl bg-card p-4 ring-1 ring-foreground/10"
           >
             <div className="flex items-start justify-between gap-3">
-              <strong>{project.name}</strong>
+              <Link
+                to="/projects/$projectId"
+                params={{ projectId: project.id }}
+                className="min-w-0 truncate font-semibold hover:underline"
+              >
+                {project.name}
+              </Link>
               {project.archivedAt ? <Badge variant="outline">Archivado</Badge> : null}
             </div>
-            <p className="mt-2 break-all font-mono text-xs text-muted-foreground">
+            <div className="mt-1">
+              <CopyValue label="Project ID" value={project.id} />
+            </div>
+            <p
+              className="mt-2 truncate font-mono text-xs text-muted-foreground"
+              title={project.repositoryPath}
+            >
               {project.repositoryPath}
             </p>
-            <p className="mt-3 text-xs text-muted-foreground">
-              {project.gitProvider} · {project.accountScope} · {formatDate(project.updatedAt)}
-            </p>
-          </Link>
+            <div className="mt-3 flex flex-wrap gap-x-2 gap-y-1 text-xs text-muted-foreground">
+              <span>{project.repositoryMode === "managed" ? "Gestionado" : "Local"}</span>
+              <span>{providerLabel(project.gitProvider)}</span>
+              <span>{scopeLabel(project.accountScope)}</span>
+              <span>{formatDate(project.updatedAt)}</span>
+            </div>
+          </article>
         ))}
       </div>
     </>
@@ -507,19 +627,24 @@ export function ProjectFormPage() {
     },
   });
   return (
-    <ProjectForm
-      title="Crear Project"
-      description="Registra un repositorio Git bajo uno de los roots permitidos."
-      submitLabel="Crear Project"
-      pending={create.isPending}
-      error={create.error}
-      onSubmit={(value) => create.mutate(value)}
-    />
+    <>
+      <PageBreadcrumb parent={{ to: "/projects", label: "Projects" }} current="Crear Project" />
+      <ProjectForm
+        title="Crear Project"
+        description="Registra un repositorio Git bajo uno de los roots permitidos."
+        submitLabel="Crear Project"
+        pending={create.isPending}
+        error={create.error}
+        onSubmit={(value) => create.mutate(value)}
+      />
+    </>
   );
 }
 
 export function ProjectDetailPage({ projectId }: { readonly projectId: string }) {
   const tasksTitleId = useId();
+  const [repositoryDirty, setRepositoryDirty] = useState(false);
+  const [configurationDirty, setConfigurationDirty] = useState(false);
   const client = useQueryClient();
   const query = useQuery({
     queryKey: ["project", projectId],
@@ -555,8 +680,14 @@ export function ProjectDetailPage({ projectId }: { readonly projectId: string })
   const project = query.data;
   return (
     <>
-      <ProjectForm
+      <PageBreadcrumb parent={{ to: "/projects", label: "Projects" }} current={project.name} />
+      <PageHeader
         title={project.name}
+        description="Inventario, Curation e Implementation del Project."
+        actions={<UnsavedChangesBadge dirty={repositoryDirty || configurationDirty} />}
+      />
+      <ProjectForm
+        title="Repositorio"
         description={
           project.archivedAt
             ? "Project archivado: solo puede restaurarse."
@@ -567,6 +698,8 @@ export function ProjectDetailPage({ projectId }: { readonly projectId: string })
         pending={save.isPending}
         error={save.error}
         disabled={project.archivedAt !== null}
+        guard={false}
+        onDirtyChange={setRepositoryDirty}
         onSubmit={(value) => save.mutate(value)}
       />
       <Card size="sm">
@@ -600,7 +733,7 @@ export function ProjectDetailPage({ projectId }: { readonly projectId: string })
           )}
         </CardContent>
       </Card>
-      <ProjectAutomation project={project} />
+      <ProjectAutomation project={project} onDirtyChange={setConfigurationDirty} />
       {archive.isError ? (
         <>
           <ErrorNotice error={archive.error} />
@@ -642,16 +775,62 @@ export function ProjectDetailPage({ projectId }: { readonly projectId: string })
                 params={{ taskId: task.id }}
               >
                 <span className="min-w-0 truncate font-medium">{task.title}</span>
-                <Badge variant="outline">{task.status}</Badge>
+                <StatusBadge status={task.status} />
               </Link>
             ))}
+            {tasks.data.nextCursor ? (
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/30 p-3">
+                <p className="text-sm text-muted-foreground">
+                  Mostrando las primeras {tasks.data.items.length} Tasks.
+                </p>
+                <Link
+                  className={buttonVariants({ variant: "outline", size: "sm" })}
+                  to="/tasks"
+                  search={{ projectId }}
+                >
+                  Ver todas las Tasks
+                </Link>
+              </div>
+            ) : null}
           </div>
         ) : (
           <Empty title="Sin Tasks">Este Project todavía no tiene Tasks activas.</Empty>
         )}
       </section>
+      <UnsavedChangesGuard dirty={repositoryDirty || configurationDirty} />
     </>
   );
+}
+
+function defaultProjectFilterState(): ProjectFilterState {
+  return { gitProvider: "all", accountScope: "all", archived: false };
+}
+
+function projectFilterState(filters: {
+  readonly gitProvider?: string;
+  readonly accountScope?: string;
+  readonly archived?: boolean;
+}): ProjectFilterState {
+  return {
+    gitProvider: filters.gitProvider ?? "all",
+    accountScope: filters.accountScope ?? "all",
+    archived: filters.archived ?? false,
+  };
+}
+
+function providerLabel(value: string): string {
+  return (
+    {
+      github: "GitHub",
+      azure_devops: "Azure DevOps",
+      gitlab: "GitLab",
+      other: "Otro",
+    }[value] ?? value
+  );
+}
+
+function scopeLabel(value: string): string {
+  return value === "work" ? "Trabajo" : value === "personal" ? "Personal" : value;
 }
 
 function ProjectForm({
@@ -662,6 +841,8 @@ function ProjectForm({
   pending,
   error,
   disabled = false,
+  guard = true,
+  onDirtyChange,
   onSubmit,
 }: {
   readonly title: string;
@@ -671,6 +852,8 @@ function ProjectForm({
   readonly pending: boolean;
   readonly error: unknown;
   readonly disabled?: boolean;
+  readonly guard?: boolean;
+  readonly onDirtyChange?: (dirty: boolean) => void;
   readonly onSubmit: (value: ProjectFields) => void;
 }) {
   const id = useId();
@@ -678,6 +861,7 @@ function ProjectForm({
     register,
     control,
     handleSubmit,
+    reset,
     formState: { errors, isDirty },
   } = useForm<ProjectFields>({
     defaultValues: project ?? {
@@ -688,135 +872,172 @@ function ProjectForm({
       accountScope: "personal",
     },
   });
+  useEffect(() => {
+    onDirtyChange?.(isDirty);
+  }, [isDirty, onDirtyChange]);
+  useEffect(() => {
+    if (project) reset(project);
+  }, [project, reset]);
+  useEffect(() => {
+    if (error) focusFirstInvalid();
+  }, [error]);
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>
-          <PageHeader title={title} description={description} />
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <form className="grid gap-5" onSubmit={handleSubmit(onSubmit)}>
-          <FieldGroup>
-            <Field data-invalid={Boolean(errors.name || apiFieldMessage(error, "name"))}>
-              <FieldLabel htmlFor={`${id}-name`}>Name</FieldLabel>
-              <Input
-                id={`${id}-name`}
-                disabled={disabled}
-                aria-invalid={Boolean(errors.name || apiFieldMessage(error, "name"))}
-                {...register("name", {
-                  required: "Name es obligatorio.",
-                  maxLength: { value: 120, message: "Máximo 120 caracteres." },
-                })}
-              />
-              <FieldError>{errors.name?.message ?? apiFieldMessage(error, "name")}</FieldError>
-            </Field>
-            <Field
-              data-invalid={Boolean(errors.description || apiFieldMessage(error, "description"))}
-            >
-              <FieldLabel htmlFor={`${id}-description`}>Description</FieldLabel>
-              <Textarea
-                id={`${id}-description`}
-                disabled={disabled}
-                className="min-h-24"
-                aria-invalid={Boolean(errors.description || apiFieldMessage(error, "description"))}
-                {...register("description", {
-                  maxLength: { value: 10000, message: "Máximo 10 000 caracteres." },
-                })}
-              />
-              <FieldError>
-                {errors.description?.message ?? apiFieldMessage(error, "description")}
-              </FieldError>
-            </Field>
-            <Field
-              data-invalid={Boolean(
-                errors.repositoryPath || apiFieldMessage(error, "repositoryPath"),
-              )}
-            >
-              <FieldLabel htmlFor={`${id}-repository`}>Repository path</FieldLabel>
-              <Input
-                id={`${id}-repository`}
-                disabled={disabled || project?.repositoryMode === "managed"}
-                className="font-mono"
-                aria-invalid={Boolean(
+    <>
+      <Card>
+        <CardHeader>
+          <CardTitle>
+            <PageHeader title={title} description={description} />
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form className="grid gap-5" onSubmit={handleSubmit(onSubmit)}>
+            <FieldGroup>
+              <Field data-invalid={Boolean(errors.name || apiFieldMessage(error, "name"))}>
+                <FieldLabel htmlFor={`${id}-name`}>Nombre</FieldLabel>
+                <Input
+                  id={`${id}-name`}
+                  disabled={disabled}
+                  aria-invalid={Boolean(errors.name || apiFieldMessage(error, "name"))}
+                  aria-describedby={
+                    errors.name || apiFieldMessage(error, "name") ? `${id}-name-error` : undefined
+                  }
+                  {...register("name", {
+                    required: "El nombre es obligatorio.",
+                    maxLength: { value: 120, message: "Máximo 120 caracteres." },
+                  })}
+                />
+                <FieldError id={`${id}-name-error`}>
+                  {errors.name?.message ?? apiFieldMessage(error, "name")}
+                </FieldError>
+              </Field>
+              <Field
+                data-invalid={Boolean(errors.description || apiFieldMessage(error, "description"))}
+              >
+                <FieldLabel htmlFor={`${id}-description`}>Descripción</FieldLabel>
+                <Textarea
+                  id={`${id}-description`}
+                  disabled={disabled}
+                  className="min-h-24"
+                  aria-invalid={Boolean(
+                    errors.description || apiFieldMessage(error, "description"),
+                  )}
+                  aria-describedby={
+                    errors.description || apiFieldMessage(error, "description")
+                      ? `${id}-description-error`
+                      : undefined
+                  }
+                  {...register("description", {
+                    maxLength: { value: 10000, message: "Máximo 10 000 caracteres." },
+                  })}
+                />
+                <FieldError id={`${id}-description-error`}>
+                  {errors.description?.message ?? apiFieldMessage(error, "description")}
+                </FieldError>
+              </Field>
+              <Field
+                data-invalid={Boolean(
                   errors.repositoryPath || apiFieldMessage(error, "repositoryPath"),
                 )}
-                {...register("repositoryPath", { required: "La ruta es obligatoria." })}
-              />
-              <FieldDescription>
-                Ruta absoluta canonicalizada dentro de un root permitido.
-              </FieldDescription>
-              <FieldError>
-                {errors.repositoryPath?.message ?? apiFieldMessage(error, "repositoryPath")}
-              </FieldError>
-            </Field>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field>
-                <FieldLabel htmlFor={`${id}-provider`}>Git provider</FieldLabel>
-                <Controller
-                  name="gitProvider"
-                  control={control}
-                  render={({ field }) => (
-                    <Select
-                      items={providerOptions}
-                      value={field.value}
-                      onValueChange={(value) => value && field.onChange(value)}
-                      disabled={disabled || project?.repositoryMode === "managed"}
-                    >
-                      <SelectTrigger id={`${id}-provider`} className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {providerOptions.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+              >
+                <FieldLabel htmlFor={`${id}-repository`}>Ruta del repositorio</FieldLabel>
+                <Input
+                  id={`${id}-repository`}
+                  disabled={disabled || project?.repositoryMode === "managed"}
+                  className="font-mono"
+                  aria-invalid={Boolean(
+                    errors.repositoryPath || apiFieldMessage(error, "repositoryPath"),
                   )}
+                  aria-describedby={[
+                    `${id}-repository-description`,
+                    errors.repositoryPath || apiFieldMessage(error, "repositoryPath")
+                      ? `${id}-repository-error`
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                  {...register("repositoryPath", { required: "La ruta es obligatoria." })}
                 />
+                <FieldDescription id={`${id}-repository-description`}>
+                  Ruta absoluta canonicalizada dentro de un root permitido.
+                </FieldDescription>
+                <FieldError id={`${id}-repository-error`}>
+                  {errors.repositoryPath?.message ?? apiFieldMessage(error, "repositoryPath")}
+                </FieldError>
               </Field>
-              <Field>
-                <FieldLabel htmlFor={`${id}-scope`}>Account scope</FieldLabel>
-                <Controller
-                  name="accountScope"
-                  control={control}
-                  render={({ field }) => (
-                    <Select
-                      items={accountScopeOptions}
-                      value={field.value}
-                      onValueChange={(value) => value && field.onChange(value)}
-                      disabled={disabled || project?.repositoryMode === "managed"}
-                    >
-                      <SelectTrigger id={`${id}-scope`} className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {accountScopeOptions.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                />
-              </Field>
-            </div>
-          </FieldGroup>
-          {error ? <ErrorNotice error={error} /> : null}
-          {!disabled ? (
-            <Button
-              className="justify-self-start"
-              disabled={pending || (project !== undefined && !isDirty)}
-              type="submit"
-            >
-              {pending ? "Guardando…" : submitLabel}
-            </Button>
-          ) : null}
-        </form>
-      </CardContent>
-    </Card>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field>
+                  <FieldLabel htmlFor={`${id}-provider`}>Proveedor Git</FieldLabel>
+                  <Controller
+                    name="gitProvider"
+                    control={control}
+                    render={({ field }) => (
+                      <Select
+                        items={providerOptions}
+                        value={field.value}
+                        onValueChange={(value) => value && field.onChange(value)}
+                        disabled={disabled || project?.repositoryMode === "managed"}
+                      >
+                        <SelectTrigger id={`${id}-provider`} className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {providerOptions.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor={`${id}-scope`}>Ámbito de cuenta</FieldLabel>
+                  <Controller
+                    name="accountScope"
+                    control={control}
+                    render={({ field }) => (
+                      <Select
+                        items={accountScopeOptions}
+                        value={field.value}
+                        onValueChange={(value) => value && field.onChange(value)}
+                        disabled={disabled || project?.repositoryMode === "managed"}
+                      >
+                        <SelectTrigger id={`${id}-scope`} className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {accountScopeOptions.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                </Field>
+              </div>
+            </FieldGroup>
+            {error ? <ErrorNotice error={error} /> : null}
+            {!disabled ? (
+              <Button
+                className="justify-self-start"
+                disabled={pending || (project !== undefined && !isDirty)}
+                type="submit"
+              >
+                {pending ? "Guardando…" : submitLabel}
+              </Button>
+            ) : null}
+          </form>
+        </CardContent>
+      </Card>
+      {guard ? (
+        <>
+          <UnsavedChangesBadge dirty={isDirty} />
+          <UnsavedChangesGuard dirty={isDirty && !pending} />
+        </>
+      ) : null}
+    </>
   );
 }

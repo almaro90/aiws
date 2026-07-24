@@ -12,7 +12,7 @@
     },
     "apps/cli": {
       "name": "@aiws/cli",
-      "version": "0.1.0",
+      "version": "0.5.1",
       "dependencies": {
         "@aiws/api-client": "workspace:*",
         "commander": "14.0.2",
@@ -20,14 +20,14 @@
     },
     "apps/runner": {
       "name": "@aiws/runner",
-      "version": "0.2.0",
+      "version": "0.5.1",
       "dependencies": {
         "@openai/codex": "0.144.4",
       },
     },
     "apps/server": {
       "name": "@aiws/server",
-      "version": "0.1.0",
+      "version": "0.5.1",
       "dependencies": {
         "@aiws/contracts": "workspace:*",
         "@aiws/core": "workspace:*",
@@ -38,10 +38,11 @@
     },
     "apps/web": {
       "name": "@aiws/web",
-      "version": "0.1.0",
+      "version": "0.5.1",
       "dependencies": {
         "@aiws/api-client": "workspace:*",
         "@base-ui/react": "1.6.0",
+        "@fontsource-variable/oxanium": "5.3.0",
         "@tanstack/react-query": "5.101.3",
         "@tanstack/react-router": "1.170.18",
         "class-variance-authority": "0.7.1",
@@ -68,7 +69,7 @@
     },
     "packages/api-client": {
       "name": "@aiws/api-client",
-      "version": "0.1.0",
+      "version": "0.5.1",
       "dependencies": {
         "@aiws/contracts": "workspace:*",
         "openapi-fetch": "0.15.0",
@@ -79,7 +80,7 @@
     },
     "packages/contracts": {
       "name": "@aiws/contracts",
-      "version": "0.1.0",
+      "version": "0.5.1",
       "dependencies": {
         "@aiws/core": "workspace:*",
         "zod": "4.1.12",
@@ -87,14 +88,14 @@
     },
     "packages/core": {
       "name": "@aiws/core",
-      "version": "0.1.0",
+      "version": "0.5.1",
       "dependencies": {
         "ulid": "3.0.1",
       },
     },
     "packages/sqlite": {
       "name": "@aiws/sqlite",
-      "version": "0.1.0",
+      "version": "0.5.1",
       "dependencies": {
         "@aiws/core": "workspace:*",
       },
@@ -214,6 +215,8 @@
     "@floating-ui/react-dom": ["@floating-ui/react-dom@2.1.9", "", { "dependencies": { "@floating-ui/dom": "^1.8.0" }, "peerDependencies": { "react": ">=16.8.0", "react-dom": ">=16.8.0" } }, "sha512-JDjEFGCpImxDCA7JJKviA0M9+RtmJdj0m/NVU5IMgBK+AmZouAQQ7/+2GLH0GXXY0YMw9oXPB8hKdbPYg5QLYg=="],
 
     "@floating-ui/utils": ["@floating-ui/utils@0.2.12", "", {}, "sha512-HpCo8tmWzLVad5s2d19EhAz5zqrrQ6s69qd6moPMQvkOuSwDT1YgRfWSVuc4ennqrgv3OHppiOGMQ7oC13yIww=="],
+
+    "@fontsource-variable/oxanium": ["@fontsource-variable/oxanium@5.3.0", "", {}, "sha512-oVOH5mHRMDLQsxG6h2XAOCxyD+uQL2w5zAjy1FgnAlqt183JDVGPxy9FWK7dDnhEO8huXfP6V2C3QJUj1Ac/Sw=="],
 
     "@hono/node-server": ["@hono/node-server@1.19.14", "", { "peerDependencies": { "hono": "^4" } }, "sha512-GwtvgtXxnWsucXvbQXkRgqksiH2Qed37H9xHZocE5sA3N8O8O8/8FA3uclQXxXVzc9XBZuEOMK7+r02FmSpHtw=="],
 

@@ -918,6 +918,7 @@ describe("Hito 8 Web serving", () => {
     await mkdir(join(directory, "assets"));
     await Bun.write(join(directory, "index.html"), "<!doctype html><title>AIWS</title>");
     await Bun.write(join(directory, "assets", "app.js"), "console.log('aiws')");
+    await Bun.write(join(directory, "aiws-logo.png"), new Uint8Array([137, 80, 78, 71]));
     const fixture = await createFixture({ webAssetsDirectory: directory });
     try {
       const route = await fixture.app.request("/tasks/example");
@@ -925,10 +926,19 @@ describe("Hito 8 Web serving", () => {
       expect(route.headers.get("Content-Security-Policy")).toContain("script-src 'self'");
       expect(await route.text()).toContain("AIWS");
 
+      const loginRoute = await fixture.app.request("/login");
+      expect(loginRoute.status).toBe(200);
+      expect(await loginRoute.text()).toContain("AIWS");
+
       const asset = await fixture.app.request("/assets/app.js");
       expect(asset.status).toBe(200);
       expect(asset.headers.get("Cache-Control")).toContain("immutable");
       expect(asset.headers.get("Content-Type")).toContain("text/javascript");
+
+      const logo = await fixture.app.request("/aiws-logo.png");
+      expect(logo.status).toBe(200);
+      expect(logo.headers.get("Content-Type")).toBe("image/png");
+      expect(new Uint8Array(await logo.arrayBuffer())).toEqual(new Uint8Array([137, 80, 78, 71]));
 
       expect((await fixture.app.request("/api/v1/does-not-exist", bearer())).status).toBe(404);
     } finally {

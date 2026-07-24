@@ -1057,6 +1057,18 @@ export function createApp(options: AppOptions): Hono<{ Variables: Variables }> {
   });
 
   if (options.webAssetsDirectory !== undefined) {
+    app.get("/aiws-logo.png", async (context) => {
+      const fileName = "aiws-logo.png";
+      const asset = Bun.file(`${options.webAssetsDirectory}/${fileName}`);
+      if (!(await asset.exists())) return context.notFound();
+      return new Response(asset, {
+        headers: {
+          "Content-Type": assetType(fileName),
+          "Cache-Control": "public, max-age=3600",
+          "X-Content-Type-Options": "nosniff",
+        },
+      });
+    });
     app.get("/assets/:file", async (context) => {
       const fileName = context.req.param("file");
       if (!/^[A-Za-z0-9._-]+$/u.test(fileName)) return context.notFound();
@@ -1099,6 +1111,7 @@ function assetType(fileName: string): string {
   if (fileName.endsWith(".js")) return "text/javascript; charset=utf-8";
   if (fileName.endsWith(".css")) return "text/css; charset=utf-8";
   if (fileName.endsWith(".map")) return "application/json; charset=utf-8";
+  if (fileName.endsWith(".png")) return "image/png";
   return "application/octet-stream";
 }
 
