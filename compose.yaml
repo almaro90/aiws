@@ -1,0 +1,77 @@
+services:
+  aiws:
+    build:
+      context: .
+      target: server
+    image: aiws:0.5.1
+    restart: unless-stopped
+    env_file: ${AIWS_ENV_FILE:-.env}
+    environment:
+      AIWS_PORT: 3000
+      AIWS_RUNNER_CONTROL_URL: http://runner-manager:4318
+    ports:
+      - "127.0.0.1:${AIWS_PORT:-3000}:3000"
+    volumes:
+      - aiws-data:/data
+      - aiws-repositories:/repositories
+      - type: bind
+        source: ${AIWS_REPO_ROOT:?Set AIWS_REPO_ROOT to the repository root mounted in AIWS}
+        target: ${AIWS_REPO_ROOT:?Set AIWS_REPO_ROOT to the repository root mounted in AIWS}
+        read_only: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 15s
+    healthcheck:
+      test: ["CMD", "/app/aiws-server", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks: [runtime]
+
+  runner-manager:
+    build:
+      context: .
+      target: runner-manager
+    image: aiws-runner-manager:0.5.1
+    restart: unless-stopped
+    env_file: ${AIWS_ENV_FILE:-.env}
+    environment:
+      AIWS_API_URL: http://aiws:3000
+      AIWS_AGENT_IMAGE: aiws-agent:0.5.1
+      AIWS_DOCKER_NETWORK: aiws-runtime
+      AIWS_CREDENTIAL_PROXY_URL: http://runner-manager:4317/v1
+    volumes:
+      - aiws-repositories:/repositories
+      - aiws-workspaces:/workspaces
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      aiws:
+        condition: service_healthy
+    networks: [runtime]
+
+  agent-image:
+    profiles: [build]
+    build:
+      context: .
+      target: agent
+    image: aiws-agent:0.5.1
+    command: ["true"]
+
+volumes:
+  aiws-data:
+  aiws-repositories:
+    name: aiws-repositories
+  aiws-workspaces:
+    name: aiws-workspaces
+  aiws-codex-auth:
+    name: aiws-codex-auth
+
+networks:
+  runtime:
+    name: aiws-runtime

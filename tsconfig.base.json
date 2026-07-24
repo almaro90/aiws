@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "baseUrl": ".",
+    "exactOptionalPropertyTypes": true,
+    "forceConsistentCasingInFileNames": true,
+    "module": "Preserve",
+    "moduleDetection": "force",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
+    "noUncheckedIndexedAccess": true,
+    "paths": {
+      "@aiws/api-client": ["packages/api-client/src/index.ts"],
+      "@aiws/contracts": ["packages/contracts/src/index.ts"],
+      "@aiws/core": ["packages/core/src/index.ts"],
+      "@aiws/server": ["apps/server/src/index.ts"],
+      "@aiws/sqlite": ["packages/sqlite/src/index.ts"],
+      "@aiws/web": ["apps/web/src/index.ts"],
+      "@aiws/cli": ["apps/cli/src/index.ts"],
+      "@aiws/runner": ["apps/runner/src/index.ts"]
+    },
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "target": "ES2022",
+    "types": ["bun"]
+  }
+}

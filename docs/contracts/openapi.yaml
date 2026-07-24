@@ -1,0 +1,2510 @@
+openapi: 3.1.0
+info:
+  title: AIWS API
+  version: 0.5.1
+  description: Contract for AIWS v0.5.1.
+  license:
+    name: GNU Affero General Public License v3.0 only
+    identifier: AGPL-3.0-only
+servers:
+  - url: /api/v1
+security:
+  - bearerAuth: []
+  - sessionCookie: []
+tags:
+  - name: Health
+    description: Process health and contract discovery.
+  - name: System
+    description: Runtime worker observability.
+  - name: Auth
+    description: Web session authentication.
+  - name: Projects
+    description: Project inventory.
+  - name: Tasks
+    description: Task aggregate and workflow.
+  - name: Questions
+    description: Curator questions and answers.
+  - name: Attachments
+    description: Authenticated task files.
+  - name: Activity
+    description: Append-only task activity.
+  - name: Timeline
+    description: Chronological Task conversation grouped by cycle.
+  - name: Connections
+    description: Authorized source-control installations.
+  - name: AgentProfiles
+    description: Configured agent runtimes.
+  - name: Runs
+    description: Isolated automated implementation attempts.
+  - name: Notifications
+    description: Global ntfy notification settings.
+paths:
+  /health:
+    get:
+      tags: [Health]
+      operationId: getHealth
+      summary: Get server health
+      security: []
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+        "503":
+          description: Unhealthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+  /system/runner:
+    get:
+      tags: [System]
+      operationId: getRunnerStatus
+      summary: Get runner-manager liveness from its latest authenticated API activity
+      responses:
+        "200":
+          description: Runner activity status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunnerStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /auth/login:
+    post:
+      tags: [Auth]
+      operationId: login
+      summary: Create a Web session
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "204":
+          description: Logged in
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logout
+      summary: End the Web session
+      security:
+        - sessionCookie: []
+      responses:
+        "204":
+          description: Logged out
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /auth/session:
+    get:
+      tags: [Auth]
+      operationId: getSession
+      summary: Get the current Web session
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /openapi.json:
+    get:
+      tags: [Health]
+      operationId: getOpenApi
+      summary: Get the generated OpenAPI contract
+      responses:
+        "200":
+          description: Generated OpenAPI document
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /notification-settings:
+    get:
+      tags: [Notifications]
+      operationId: getNotificationSettings
+      summary: Get the masked global ntfy configuration
+      responses:
+        "200":
+          description: Notification settings
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NotificationSettings" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    patch:
+      tags: [Notifications]
+      operationId: updateNotificationSettings
+      summary: Update the global ntfy configuration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateNotificationSettingsRequest" }
+      responses:
+        "200":
+          description: Masked notification settings
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NotificationSettings" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+  /notification-settings/test:
+    post:
+      tags: [Notifications]
+      operationId: testNotificationSettings
+      summary: Send a synchronous ntfy test notification
+      responses:
+        "204": { description: Test notification delivered }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503":
+          description: ntfy is unavailable
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+  /connections:
+    get:
+      tags: [Connections]
+      operationId: listConnections
+      responses:
+        "200":
+          description: Connections
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Connection" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /connections/github/install:
+    get:
+      tags: [Connections]
+      operationId: getGitHubInstallationUrl
+      parameters:
+        - name: returnTo
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: GitHub App installation URL
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [url]
+                properties: { url: { type: string, format: uri } }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /connections/github/callback:
+    get:
+      tags: [Connections]
+      operationId: completeGitHubInstallation
+      parameters:
+        - { name: state, in: query, required: true, schema: { type: string } }
+        - { name: installation_id, in: query, required: true, schema: { type: string } }
+      responses:
+        "303": { description: Connection registered; redirect to Web }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+  /connections/{connectionId}/repositories:
+    get:
+      tags: [Connections]
+      operationId: listConnectionRepositories
+      parameters: [{ $ref: "#/components/parameters/ConnectionId" }]
+      responses:
+        "200":
+          description: Repositories visible to the installation
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/RemoteRepository" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /connections/{connectionId}/import:
+    post:
+      tags: [Connections, Projects]
+      operationId: importConnectionRepository
+      parameters: [{ $ref: "#/components/parameters/ConnectionId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ImportRepositoryRequest" }
+      responses:
+        "201":
+          description: Managed Project created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Project" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+  /connections/{connectionId}/revoke:
+    post:
+      tags: [Connections]
+      operationId: revokeConnection
+      parameters: [{ $ref: "#/components/parameters/ConnectionId" }]
+      responses:
+        "200":
+          description: Revoked Connection
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Connection" }
+  /agent-profiles:
+    get:
+      tags: [AgentProfiles]
+      operationId: listAgentProfiles
+      responses:
+        "200":
+          description: Agent Profiles
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AgentProfile" }
+    post:
+      tags: [AgentProfiles]
+      operationId: createAgentProfile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateAgentProfileRequest" }
+      responses:
+        "201":
+          description: Agent Profile created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AgentProfile" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+  /agent-profiles/model-catalog:
+    post:
+      tags: [AgentProfiles]
+      operationId: listAgentProfileModels
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ModelCatalogRequest" }
+      responses:
+        "200":
+          description: Live Codex model catalog
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ModelCatalog" }
+        "503":
+          description: Codex model catalog unavailable
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+  /agent-profiles/{agentProfileId}/enabled:
+    patch:
+      tags: [AgentProfiles]
+      operationId: setAgentProfileEnabled
+      parameters: [{ $ref: "#/components/parameters/AgentProfileId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SetAgentProfileEnabledRequest" }
+      responses:
+        "200":
+          description: Agent Profile updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AgentProfile" }
+  /tasks/{taskId}/runs:
+    get:
+      tags: [Runs]
+      operationId: listTaskRuns
+      parameters:
+        - { $ref: "#/components/parameters/TaskId" }
+        - name: kind
+          in: query
+          schema: { $ref: "#/components/schemas/RunKind" }
+      responses:
+        "200":
+          description: Task Runs
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Run" }
+  /runs/{runId}:
+    get:
+      tags: [Runs]
+      operationId: getRun
+      parameters: [{ $ref: "#/components/parameters/RunId" }]
+      responses:
+        "200":
+          description: Run
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Run" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /runs/{runId}/logs:
+    get:
+      tags: [Runs]
+      operationId: getRunLogs
+      parameters: [{ $ref: "#/components/parameters/RunId" }]
+      responses:
+        "200":
+          description: Codex JSONL event stream
+          content:
+            application/x-ndjson:
+              schema: { type: string }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [Runs]
+      operationId: putRunLogs
+      parameters: [{ $ref: "#/components/parameters/RunId" }]
+      requestBody:
+        required: true
+        content:
+          application/x-ndjson:
+            schema: { type: string, maxLength: 5000000 }
+      responses:
+        "204": { description: Logs stored }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /runs/claim:
+    post:
+      tags: [Runs]
+      operationId: claimNextRun
+      responses:
+        "200":
+          description: Claimed assignment
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RunAssignment" }
+        "204": { description: No eligible Task }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /runs/reconcile:
+    post:
+      tags: [Runs]
+      operationId: reconcileRuns
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReconcileRunsRequest" }
+      responses:
+        "200":
+          description: Recovered stale Runs
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Run" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /runs/{runId}/advance:
+    post:
+      tags: [Runs]
+      operationId: advanceRun
+      parameters: [{ $ref: "#/components/parameters/RunId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AdvanceRunRequest" }
+      responses:
+        "200":
+          description: Updated Run
+          content: { application/json: { schema: { $ref: "#/components/schemas/Run" } } }
+  /runs/{runId}/heartbeat:
+    post:
+      tags: [Runs]
+      operationId: heartbeatRun
+      parameters: [{ $ref: "#/components/parameters/RunId" }]
+      responses:
+        "200":
+          description: Updated Run
+          content: { application/json: { schema: { $ref: "#/components/schemas/Run" } } }
+  /runs/{runId}/git-credentials:
+    post:
+      tags: [Runs]
+      operationId: getRunGitCredentials
+      parameters: [{ $ref: "#/components/parameters/RunId" }]
+      responses:
+        "200":
+          description: Short-lived runner-only credentials
+          content: { application/json: { schema: { $ref: "#/components/schemas/GitCredentials" } } }
+  /runs/{runId}/pull-request:
+    post:
+      tags: [Runs]
+      operationId: createRunPullRequest
+      parameters: [{ $ref: "#/components/parameters/RunId" }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/CreatePullRequestRequest" } } }
+      responses:
+        "200":
+          description: Pull request URL
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [prUrl]
+                properties: { prUrl: { type: string, format: uri } }
+  /runs/{runId}/complete:
+    post:
+      tags: [Runs]
+      operationId: completeRun
+      parameters: [{ $ref: "#/components/parameters/RunId" }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/CompleteRunRequest" } } }
+      responses:
+        "200": { description: Succeeded Run, content: { application/json: { schema: { $ref: "#/components/schemas/Run" } } } }
+  /runs/{runId}/curation-result:
+    post:
+      tags: [Runs]
+      operationId: completeCurationRun
+      parameters: [{ $ref: "#/components/parameters/RunId" }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/CompleteCurationRunRequest" } } }
+      responses:
+        "200": { description: Applied curation result, content: { application/json: { schema: { $ref: "#/components/schemas/Run" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+  /runs/{runId}/fail:
+    post:
+      tags: [Runs]
+      operationId: failRun
+      parameters: [{ $ref: "#/components/parameters/RunId" }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/FailRunRequest" } } }
+      responses:
+        "200": { description: Failed Run, content: { application/json: { schema: { $ref: "#/components/schemas/Run" } } } }
+  /runs/{runId}/retry:
+    post:
+      tags: [Runs]
+      operationId: retryRun
+      parameters:
+        - { $ref: "#/components/parameters/RunId" }
+        - { $ref: "#/components/parameters/IfMatch" }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RetryRunRequest" }
+      responses:
+        "201": { description: Retried assignment, content: { application/json: { schema: { $ref: "#/components/schemas/RunAssignment" } } } }
+  /runs/{runId}/cancel:
+    post:
+      tags: [Runs]
+      operationId: cancelRun
+      parameters:
+        - { $ref: "#/components/parameters/RunId" }
+        - { $ref: "#/components/parameters/IfMatch" }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/CancelRunRequest" } } }
+      responses:
+        "200": { description: Cancelled Run, content: { application/json: { schema: { $ref: "#/components/schemas/Run" } } } }
+  /projects:
+    get:
+      tags: [Projects]
+      operationId: listProjects
+      summary: List projects
+      parameters:
+        - $ref: "#/components/parameters/Archived"
+        - $ref: "#/components/parameters/GitProvider"
+        - $ref: "#/components/parameters/AccountScope"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: Projects
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+    post:
+      tags: [Projects]
+      operationId: createProject
+      summary: Create a project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProjectRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /projects/{projectId}:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    get:
+      tags: [Projects]
+      operationId: getProject
+      summary: Get a project
+      responses:
+        "200":
+          description: Project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [Projects]
+      operationId: updateProject
+      summary: Update a project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateProjectRequest"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /projects/{projectId}/branches:
+    get:
+      tags: [Projects]
+      operationId: listProjectBranches
+      summary: List remote branches available to a managed project
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Remote branches
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RemoteBranch"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /projects/{projectId}/archive:
+    post:
+      tags: [Projects]
+      operationId: archiveProject
+      summary: Archive a project
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Archived
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /projects/{projectId}/unarchive:
+    post:
+      tags: [Projects]
+      operationId: unarchiveProject
+      summary: Restore an archived project
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Restored
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /tasks:
+    get:
+      tags: [Tasks]
+      operationId: listTasks
+      summary: List tasks
+      parameters:
+        - $ref: "#/components/parameters/ProjectIdQuery"
+        - name: status
+          in: query
+          required: false
+          style: form
+          explode: true
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/TaskStatus"
+        - $ref: "#/components/parameters/AccountScope"
+        - $ref: "#/components/parameters/GitProvider"
+        - $ref: "#/components/parameters/Archived"
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [updatedAt, createdAt]
+            default: updatedAt
+        - name: order
+          in: query
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: Tasks
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+    post:
+      tags: [Tasks]
+      operationId: createTask
+      summary: Create a task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTaskRequest"
+      responses:
+        "201":
+          description: Created
+          headers:
+            ETag:
+              $ref: "#/components/headers/TaskETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskAggregate"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /tasks/{taskId}:
+    parameters:
+      - $ref: "#/components/parameters/TaskId"
+    get:
+      tags: [Tasks]
+      operationId: getTask
+      summary: Get a task aggregate
+      responses:
+        "200":
+          description: Task aggregate
+          headers:
+            ETag:
+              $ref: "#/components/headers/TaskETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskAggregate"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [Tasks]
+      operationId: updateTask
+      summary: Update mutable task fields
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTaskRequest"
+      responses:
+        "200":
+          description: Updated
+          headers:
+            ETag:
+              $ref: "#/components/headers/TaskETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskAggregate"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+  /tasks/{taskId}/transition:
+    post:
+      tags: [Tasks]
+      operationId: transitionTask
+      summary: Transition a task
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TransitionTaskRequest"
+      responses:
+        "200":
+          description: Transitioned
+          headers:
+            ETag:
+              $ref: "#/components/headers/TaskETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskAggregate"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+  /tasks/{taskId}/automation/resume:
+    post:
+      tags: [Tasks, Runs]
+      operationId: resumeTaskAutomation
+      summary: Resume automatic dispatch for a paused Task
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+        - $ref: "#/components/parameters/IfMatch"
+      responses:
+        "200":
+          description: Automation resumed
+          headers:
+            ETag:
+              $ref: "#/components/headers/TaskETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskAggregate"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+  /tasks/{taskId}/archive:
+    post:
+      tags: [Tasks]
+      operationId: archiveTask
+      summary: Archive a task
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReasonRequest"
+      responses:
+        "200":
+          description: Archived
+          headers:
+            ETag:
+              $ref: "#/components/headers/TaskETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskAggregate"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+  /tasks/{taskId}/unarchive:
+    post:
+      tags: [Tasks]
+      operationId: unarchiveTask
+      summary: Restore an archived task
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+        - $ref: "#/components/parameters/IfMatch"
+      responses:
+        "200":
+          description: Restored
+          headers:
+            ETag:
+              $ref: "#/components/headers/TaskETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskAggregate"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+  /tasks/{taskId}/messages:
+    post:
+      tags: [Timeline]
+      operationId: createTaskMessage
+      summary: Add an incremental change or context message
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                text: { type: [string, "null"], maxLength: 100000 }
+                file:
+                  type: array
+                  maxItems: 10
+                  items: { type: string, format: binary }
+      responses:
+        "201":
+          description: Message and attachments stored atomically
+          headers: { ETag: { $ref: "#/components/headers/TaskETag" } }
+          content: { application/json: { schema: { $ref: "#/components/schemas/TaskMessageMutationResult" } } }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+  /tasks/{taskId}/timeline:
+    get:
+      tags: [Timeline]
+      operationId: getTaskTimeline
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: Backward-paginated items returned in ascending render order
+          content: { application/json: { schema: { $ref: "#/components/schemas/TimelinePage" } } }
+  /tasks/{taskId}/questions:
+    parameters:
+      - $ref: "#/components/parameters/TaskId"
+    get:
+      tags: [Questions]
+      operationId: listQuestions
+      summary: List task questions
+      responses:
+        "200":
+          description: Questions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Question"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [Questions]
+      operationId: createQuestion
+      summary: Create a question
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QuestionDefinitionRequest"
+      responses:
+        "201":
+          description: Created
+          headers:
+            ETag:
+              $ref: "#/components/headers/TaskETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskAggregate"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+  /tasks/{taskId}/questions/{questionId}:
+    parameters:
+      - $ref: "#/components/parameters/TaskId"
+      - $ref: "#/components/parameters/QuestionId"
+    get:
+      tags: [Questions]
+      operationId: getQuestion
+      summary: Get a question
+      responses:
+        "200":
+          description: Question
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Question"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [Questions]
+      operationId: updateQuestion
+      summary: Update an unanswered question
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QuestionDefinitionRequest"
+      responses:
+        "200":
+          description: Updated
+          headers:
+            ETag:
+              $ref: "#/components/headers/TaskETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskAggregate"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+  /tasks/{taskId}/questions/{questionId}/answer:
+    post:
+      tags: [Questions]
+      operationId: answerQuestion
+      summary: Answer a question
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+        - $ref: "#/components/parameters/QuestionId"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnswerQuestionRequest"
+      responses:
+        "200":
+          description: Answered
+          headers:
+            ETag:
+              $ref: "#/components/headers/TaskETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskAggregate"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+  /tasks/{taskId}/questions/{questionId}/dismiss:
+    post:
+      tags: [Questions]
+      operationId: dismissQuestion
+      summary: Dismiss a question
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+        - $ref: "#/components/parameters/QuestionId"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReasonRequest"
+      responses:
+        "200":
+          description: Dismissed
+          headers:
+            ETag:
+              $ref: "#/components/headers/TaskETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskAggregate"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+  /tasks/{taskId}/questions/{questionId}/reopen:
+    post:
+      tags: [Questions]
+      operationId: reopenQuestion
+      summary: Reopen a question
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+        - $ref: "#/components/parameters/QuestionId"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReasonRequest"
+      responses:
+        "200":
+          description: Reopened
+          headers:
+            ETag:
+              $ref: "#/components/headers/TaskETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskAggregate"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+  /tasks/{taskId}/attachments:
+    parameters:
+      - $ref: "#/components/parameters/TaskId"
+    get:
+      tags: [Attachments]
+      operationId: listAttachments
+      summary: List task attachments
+      responses:
+        "200":
+          description: Attachments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Attachment"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [Attachments]
+      operationId: addAttachment
+      summary: Add an attachment
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "201":
+          description: Uploaded
+          headers:
+            ETag:
+              $ref: "#/components/headers/TaskETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttachmentMutationResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+  /tasks/{taskId}/attachments/{attachmentId}:
+    parameters:
+      - $ref: "#/components/parameters/TaskId"
+      - $ref: "#/components/parameters/AttachmentId"
+    get:
+      tags: [Attachments]
+      operationId: getAttachment
+      summary: Get attachment metadata
+      responses:
+        "200":
+          description: Attachment metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Attachment"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Attachments]
+      operationId: removeAttachment
+      summary: Remove an attachment
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      responses:
+        "200":
+          description: Removed
+          headers:
+            ETag:
+              $ref: "#/components/headers/TaskETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskVersionResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+  /tasks/{taskId}/attachments/{attachmentId}/content:
+    get:
+      tags: [Attachments]
+      operationId: downloadAttachment
+      summary: Download attachment content
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+        - $ref: "#/components/parameters/AttachmentId"
+      responses:
+        "200":
+          description: Attachment bytes
+          headers:
+            ETag:
+              schema:
+                type: string
+            Content-Disposition:
+              schema:
+                type: string
+            X-Content-Type-Options:
+              schema:
+                type: string
+                const: nosniff
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /tasks/{taskId}/activity:
+    get:
+      tags: [Activity]
+      operationId: listTaskActivity
+      summary: List task activity
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: Activity
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskEventPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: aiws_session
+  headers:
+    TaskETag:
+      description: Current Task version as a quoted integer.
+      schema:
+        type: string
+        examples: ['"4"']
+  parameters:
+    ProjectId:
+      name: projectId
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/ProjectId"
+    ProjectIdQuery:
+      name: projectId
+      in: query
+      required: false
+      schema:
+        $ref: "#/components/schemas/ProjectId"
+    TaskId:
+      name: taskId
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/TaskId"
+    QuestionId:
+      name: questionId
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/QuestionId"
+    AttachmentId:
+      name: attachmentId
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/AttachmentId"
+    ConnectionId:
+      name: connectionId
+      in: path
+      required: true
+      schema: { $ref: "#/components/schemas/ConnectionId" }
+    AgentProfileId:
+      name: agentProfileId
+      in: path
+      required: true
+      schema: { $ref: "#/components/schemas/AgentProfileId" }
+    RunId:
+      name: runId
+      in: path
+      required: true
+      schema: { $ref: "#/components/schemas/RunId" }
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      description: Expected Task version, conventionally quoted.
+      schema:
+        type: string
+        pattern: '^"?[1-9][0-9]*"?$'
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema:
+        type: string
+        minLength: 1
+    Archived:
+      name: archived
+      in: query
+      required: false
+      schema:
+        type: boolean
+        default: false
+    GitProvider:
+      name: gitProvider
+      in: query
+      required: false
+      schema:
+        $ref: "#/components/schemas/GitProvider"
+    AccountScope:
+      name: accountScope
+      in: query
+      required: false
+      schema:
+        $ref: "#/components/schemas/AccountScope"
+  responses:
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Forbidden:
+      description: Forbidden
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Conflict:
+      description: Conflict
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    ValidationError:
+      description: Validation error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    PreconditionRequired:
+      description: If-Match required
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    PayloadTooLarge:
+      description: Attachment too large
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    UnsupportedMediaType:
+      description: Unsupported attachment type
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    TooManyRequests:
+      description: Rate limit exceeded
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+            minimum: 1
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+  schemas:
+    ProjectId:
+      type: string
+      pattern: '^prj_[0-9A-HJKMNP-TV-Z]{26}$'
+    TaskId:
+      type: string
+      pattern: '^tsk_[0-9A-HJKMNP-TV-Z]{26}$'
+    QuestionId:
+      type: string
+      pattern: '^qst_[0-9A-HJKMNP-TV-Z]{26}$'
+    OptionId:
+      type: string
+      pattern: '^opt_[0-9A-HJKMNP-TV-Z]{26}$'
+    AttachmentId:
+      type: string
+      pattern: '^att_[0-9A-HJKMNP-TV-Z]{26}$'
+    EventId:
+      type: string
+      pattern: '^evt_[0-9A-HJKMNP-TV-Z]{26}$'
+    ConnectionId:
+      type: string
+      pattern: '^con_[0-9A-HJKMNP-TV-Z]{26}$'
+    AgentProfileId:
+      type: string
+      pattern: '^agp_[0-9A-HJKMNP-TV-Z]{26}$'
+    RunId:
+      type: string
+      pattern: '^run_[0-9A-HJKMNP-TV-Z]{26}$'
+    TaskCycleId: { type: string, pattern: '^cyc_[0-9A-HJKMNP-TV-Z]{26}$' }
+    TaskMessageId: { type: string, pattern: '^msg_[0-9A-HJKMNP-TV-Z]{26}$' }
+    SpecRevisionId: { type: string, pattern: '^spc_[0-9A-HJKMNP-TV-Z]{26}$' }
+    QuestionAnswerId: { type: string, pattern: '^ans_[0-9A-HJKMNP-TV-Z]{26}$' }
+    DeliveryId: { type: string, pattern: '^dlv_[0-9A-HJKMNP-TV-Z]{26}$' }
+    Timestamp:
+      type: string
+      format: date-time
+    GitProvider:
+      type: string
+      enum: [github, azure_devops, gitlab, other]
+    AccountScope:
+      type: string
+      enum: [personal, work]
+    TaskStatus:
+      type: string
+      enum: [draft, curating, blocked, ready, implementing, done]
+    RunKind:
+      type: string
+      enum: [curation, implementation]
+    QuestionType:
+      type: string
+      enum: [text, single_choice, multiple_choice]
+    QuestionStatus:
+      type: string
+      enum: [open, answered, dismissed]
+    ActorType:
+      type: string
+      enum: [web, cli, system]
+    Health:
+      type: object
+      additionalProperties: false
+      required: [status, version]
+      properties:
+        status:
+          type: string
+          enum: [ok, unhealthy]
+        version:
+          type: string
+    RunnerStatus:
+      type: object
+      additionalProperties: false
+      required: [status, lastSeenAt, offlineAfterSeconds]
+      properties:
+        status:
+          type: string
+          enum: [online, offline, unknown]
+        lastSeenAt:
+          oneOf: [{ $ref: "#/components/schemas/Timestamp" }, { type: "null" }]
+        offlineAfterSeconds:
+          type: integer
+          minimum: 1
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          minLength: 1
+          maxLength: 120
+        password:
+          type: string
+          minLength: 1
+          maxLength: 1024
+    Session:
+      type: object
+      additionalProperties: false
+      required: [authenticated, username]
+      properties:
+        authenticated:
+          type: boolean
+          const: true
+        username:
+          type: string
+    NotificationSettings:
+      type: object
+      additionalProperties: false
+      required: [enabled, baseUrl, topic, accessTokenConfigured, updatedAt]
+      properties:
+        enabled: { type: boolean }
+        baseUrl: { type: string, format: uri }
+        topic: { type: string, maxLength: 64, pattern: '^[-_A-Za-z0-9]*$' }
+        accessTokenConfigured: { type: boolean }
+        updatedAt: { $ref: "#/components/schemas/Timestamp" }
+    UpdateNotificationSettingsRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        enabled: { type: boolean }
+        baseUrl:
+          type: string
+          format: uri
+          description: HTTP/HTTPS URL without credentials, query parameters or fragment.
+        topic: { type: string, maxLength: 64, pattern: '^[-_A-Za-z0-9]*$' }
+        accessToken:
+          type: [string, "null"]
+          minLength: 1
+          maxLength: 4096
+          writeOnly: true
+    Project:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - name
+        - description
+        - repositoryPath
+        - gitProvider
+        - accountScope
+        - repositoryMode
+        - connectionId
+        - remoteRepositoryId
+        - remoteFullName
+        - remoteWebUrl
+        - defaultBranch
+        - automationEnabled
+        - curationAgentProfileId
+        - implementationAgentProfileId
+        - scheduleCron
+        - scheduleTimezone
+        - maxConcurrency
+        - createdAt
+        - updatedAt
+        - archivedAt
+      properties:
+        id:
+          $ref: "#/components/schemas/ProjectId"
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        description:
+          type: string
+          maxLength: 10000
+        repositoryPath:
+          type: string
+          minLength: 1
+        gitProvider:
+          $ref: "#/components/schemas/GitProvider"
+        accountScope:
+          $ref: "#/components/schemas/AccountScope"
+        repositoryMode:
+          type: string
+          enum: [local, managed]
+        connectionId:
+          oneOf: [{ $ref: "#/components/schemas/ConnectionId" }, { type: "null" }]
+        remoteRepositoryId: { type: [string, "null"] }
+        remoteFullName: { type: [string, "null"] }
+        remoteWebUrl: { type: [string, "null"], format: uri }
+        defaultBranch: { type: [string, "null"] }
+        automationEnabled: { type: boolean }
+        curationAgentProfileId:
+          oneOf: [{ $ref: "#/components/schemas/AgentProfileId" }, { type: "null" }]
+        implementationAgentProfileId:
+          oneOf: [{ $ref: "#/components/schemas/AgentProfileId" }, { type: "null" }]
+        scheduleCron: { type: [string, "null"] }
+        scheduleTimezone: { type: string }
+        maxConcurrency: { type: integer, minimum: 1, maximum: 16 }
+        createdAt:
+          $ref: "#/components/schemas/Timestamp"
+        updatedAt:
+          $ref: "#/components/schemas/Timestamp"
+        archivedAt:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+    CreateProjectRequest:
+      type: object
+      additionalProperties: false
+      required: [name, repositoryPath, gitProvider, accountScope]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        description:
+          type: string
+          maxLength: 10000
+          default: ""
+        repositoryPath:
+          type: string
+          minLength: 1
+        gitProvider:
+          $ref: "#/components/schemas/GitProvider"
+        accountScope:
+          $ref: "#/components/schemas/AccountScope"
+    UpdateProjectRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        description:
+          type: string
+          maxLength: 10000
+        repositoryPath:
+          type: string
+          minLength: 1
+        gitProvider:
+          $ref: "#/components/schemas/GitProvider"
+        accountScope:
+          $ref: "#/components/schemas/AccountScope"
+        defaultBranch:
+          type: string
+          minLength: 1
+          maxLength: 255
+        automationEnabled: { type: boolean }
+        curationAgentProfileId:
+          oneOf: [{ $ref: "#/components/schemas/AgentProfileId" }, { type: "null" }]
+        implementationAgentProfileId:
+          oneOf: [{ $ref: "#/components/schemas/AgentProfileId" }, { type: "null" }]
+        scheduleCron: { type: [string, "null"] }
+        scheduleTimezone: { type: string }
+        maxConcurrency: { type: integer, minimum: 1, maximum: 16 }
+    ProjectPage:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Project"
+        nextCursor:
+          type: [string, "null"]
+    TaskSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - projectId
+        - projectName
+        - title
+        - status
+        - version
+        - prUrl
+        - createdAt
+        - updatedAt
+        - archivedAt
+      properties:
+        id:
+          $ref: "#/components/schemas/TaskId"
+        projectId:
+          $ref: "#/components/schemas/ProjectId"
+        projectName:
+          type: string
+        title:
+          type: string
+        status:
+          $ref: "#/components/schemas/TaskStatus"
+        version:
+          type: integer
+          minimum: 1
+        prUrl:
+          type: [string, "null"]
+          format: uri
+        createdAt:
+          $ref: "#/components/schemas/Timestamp"
+        updatedAt:
+          $ref: "#/components/schemas/Timestamp"
+        archivedAt:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+    TaskPage:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/TaskSummary"
+        nextCursor:
+          type: [string, "null"]
+    CreateTaskRequest:
+      type: object
+      additionalProperties: false
+      required: [projectId, userRequest]
+      properties:
+        projectId:
+          $ref: "#/components/schemas/ProjectId"
+        title:
+          type: [string, "null"]
+          minLength: 1
+          maxLength: 200
+        userRequest:
+          type: string
+          minLength: 1
+          maxLength: 100000
+        baseBranch:
+          type: string
+          minLength: 1
+          maxLength: 255
+    UpdateTaskRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        userRequest:
+          type: string
+          minLength: 1
+          maxLength: 100000
+        curatorSpec:
+          type: string
+          maxLength: 1048576
+        prUrl:
+          type: [string, "null"]
+          format: uri
+          maxLength: 2048
+    TransitionTaskRequest:
+      type: object
+      additionalProperties: false
+      required: [from, to]
+      properties:
+        from:
+          $ref: "#/components/schemas/TaskStatus"
+        to:
+          $ref: "#/components/schemas/TaskStatus"
+        reason:
+          type: [string, "null"]
+          maxLength: 2000
+    ReasonRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        reason:
+          type: [string, "null"]
+          maxLength: 2000
+    ProjectRef:
+      allOf:
+        - $ref: "#/components/schemas/Project"
+    QuestionOption:
+      type: object
+      additionalProperties: false
+      required: [id, label, position]
+      properties:
+        id:
+          $ref: "#/components/schemas/OptionId"
+        label:
+          type: string
+          minLength: 1
+          maxLength: 500
+        position:
+          type: integer
+          minimum: 0
+    Question:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - taskId
+        - cycleId
+        - text
+        - type
+        - options
+        - allowOther
+        - answerText
+        - selectedOptionIds
+        - status
+        - createdAt
+        - updatedAt
+        - answeredAt
+        - dismissedAt
+      properties:
+        id:
+          $ref: "#/components/schemas/QuestionId"
+        taskId:
+          $ref: "#/components/schemas/TaskId"
+        cycleId: { $ref: "#/components/schemas/TaskCycleId" }
+        text:
+          type: string
+          minLength: 1
+          maxLength: 5000
+        type:
+          $ref: "#/components/schemas/QuestionType"
+        options:
+          type: array
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/QuestionOption"
+        allowOther:
+          type: boolean
+        answerText:
+          type: [string, "null"]
+        selectedOptionIds:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/OptionId"
+        status:
+          $ref: "#/components/schemas/QuestionStatus"
+        createdAt:
+          $ref: "#/components/schemas/Timestamp"
+        updatedAt:
+          $ref: "#/components/schemas/Timestamp"
+        answeredAt:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+        dismissedAt:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+    QuestionOptionInput:
+      type: object
+      additionalProperties: false
+      required: [label]
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 500
+    QuestionDefinitionRequest:
+      type: object
+      additionalProperties: false
+      required: [text, type, options, allowOther]
+      properties:
+        text:
+          type: string
+          minLength: 1
+          maxLength: 5000
+        type:
+          $ref: "#/components/schemas/QuestionType"
+        options:
+          type: array
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/QuestionOptionInput"
+        allowOther:
+          type: boolean
+    AnswerQuestionRequest:
+      type: object
+      additionalProperties: false
+      required: [selectedOptionIds, answerText]
+      properties:
+        selectedOptionIds:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/OptionId"
+        answerText:
+          type: [string, "null"]
+          maxLength: 10000
+    Attachment:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - taskId
+        - cycleId
+        - messageId
+        - originalName
+        - mimeType
+        - sizeBytes
+        - sha256
+        - downloadUrl
+        - createdAt
+      properties:
+        id:
+          $ref: "#/components/schemas/AttachmentId"
+        taskId:
+          $ref: "#/components/schemas/TaskId"
+        cycleId: { $ref: "#/components/schemas/TaskCycleId" }
+        messageId:
+          oneOf: [{ $ref: "#/components/schemas/TaskMessageId" }, { type: "null" }]
+        originalName:
+          type: string
+          minLength: 1
+          maxLength: 255
+        mimeType:
+          type: string
+        sizeBytes:
+          type: integer
+          minimum: 1
+          maximum: 26214400
+        sha256:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        downloadUrl:
+          type: string
+        createdAt:
+          $ref: "#/components/schemas/Timestamp"
+    TaskAggregate:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - version
+        - title
+        - userRequest
+        - curatorSpec
+        - status
+        - prUrl
+        - project
+        - questions
+        - attachments
+        - createdAt
+        - updatedAt
+        - archivedAt
+        - automationPaused
+        - currentCycle
+        - currentDelivery
+      properties:
+        id:
+          $ref: "#/components/schemas/TaskId"
+        version:
+          type: integer
+          minimum: 1
+        title:
+          type: string
+        userRequest:
+          type: string
+        curatorSpec:
+          type: string
+        status:
+          $ref: "#/components/schemas/TaskStatus"
+        prUrl:
+          type: [string, "null"]
+          format: uri
+        project:
+          $ref: "#/components/schemas/ProjectRef"
+        questions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Question"
+        attachments:
+          type: array
+          items:
+            $ref: "#/components/schemas/Attachment"
+        createdAt:
+          $ref: "#/components/schemas/Timestamp"
+        updatedAt:
+          $ref: "#/components/schemas/Timestamp"
+        archivedAt:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+        automationPaused:
+          type: boolean
+        currentCycle: { $ref: "#/components/schemas/TaskCycle" }
+        currentDelivery:
+          oneOf: [{ $ref: "#/components/schemas/Delivery" }, { type: "null" }]
+    Connection:
+      type: object
+      additionalProperties: false
+      required: [id, provider, host, externalAccountId, displayName, installationId, status, createdAt, updatedAt]
+      properties:
+        id: { $ref: "#/components/schemas/ConnectionId" }
+        provider: { type: string, const: github }
+        host: { type: string, format: uri }
+        externalAccountId: { type: string }
+        displayName: { type: string }
+        installationId: { type: string }
+        status: { type: string, enum: [active, revoked] }
+        createdAt: { $ref: "#/components/schemas/Timestamp" }
+        updatedAt: { $ref: "#/components/schemas/Timestamp" }
+    RemoteRepository:
+      type: object
+      additionalProperties: false
+      required: [id, fullName, name, description, webUrl, cloneUrl, defaultBranch, private]
+      properties:
+        id: { type: string }
+        fullName: { type: string }
+        name: { type: string }
+        description: { type: string }
+        webUrl: { type: string, format: uri }
+        cloneUrl: { type: string, format: uri }
+        defaultBranch: { type: string }
+        private: { type: boolean }
+    RemoteBranch:
+      type: object
+      additionalProperties: false
+      required: [name, sha, protected]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 255 }
+        sha: { type: string }
+        protected: { type: boolean }
+    ImportRepositoryRequest:
+      type: object
+      additionalProperties: false
+      required: [repositoryId, accountScope]
+      properties:
+        repositoryId: { type: string, pattern: '^\d+$' }
+        accountScope: { $ref: "#/components/schemas/AccountScope" }
+        name: { type: string, minLength: 1, maxLength: 120 }
+        description: { type: string, maxLength: 10000, default: "" }
+    AgentProfile:
+      type: object
+      additionalProperties: false
+      required: [id, name, runtime, authMode, credentialReference, model, reasoningEffort, enabled, createdAt, updatedAt]
+      properties:
+        id: { $ref: "#/components/schemas/AgentProfileId" }
+        name: { type: string }
+        runtime: { type: string, const: codex }
+        authMode: { type: string, enum: [api_key, chatgpt_session] }
+        credentialReference: { type: string, description: Environment variable name; never the credential value. }
+        model: { type: [string, "null"] }
+        reasoningEffort: { type: [string, "null"] }
+        enabled: { type: boolean }
+        createdAt: { $ref: "#/components/schemas/Timestamp" }
+        updatedAt: { $ref: "#/components/schemas/Timestamp" }
+    CreateAgentProfileRequest:
+      type: object
+      additionalProperties: false
+      required: [name, authMode, credentialReference, model, reasoningEffort]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        runtime: { type: string, const: codex, default: codex }
+        authMode: { type: string, enum: [api_key, chatgpt_session] }
+        credentialReference: { type: string, pattern: '^[A-Z][A-Z0-9_]*$' }
+        model: { type: string, minLength: 1, maxLength: 120 }
+        reasoningEffort: { type: string, minLength: 1, maxLength: 120 }
+    ModelCatalogRequest:
+      type: object
+      additionalProperties: false
+      required: [authMode, credentialReference]
+      properties:
+        authMode: { type: string, enum: [api_key, chatgpt_session] }
+        credentialReference: { type: string, pattern: '^[A-Z][A-Z0-9_]*$', maxLength: 255 }
+    ModelCatalogModel:
+      type: object
+      additionalProperties: false
+      required: [id, name, description, isDefault, defaultReasoningEffort, supportedReasoningEfforts]
+      properties:
+        id: { type: string, minLength: 1, maxLength: 120 }
+        name: { type: string }
+        description: { type: string }
+        isDefault: { type: boolean }
+        defaultReasoningEffort: { type: string, minLength: 1, maxLength: 120 }
+        supportedReasoningEfforts:
+          type: array
+          minItems: 1
+          items: { type: string, minLength: 1, maxLength: 120 }
+    ModelCatalog:
+      type: object
+      additionalProperties: false
+      required: [models]
+      properties:
+        models:
+          type: array
+          minItems: 1
+          items: { $ref: "#/components/schemas/ModelCatalogModel" }
+    SetAgentProfileEnabledRequest:
+      type: object
+      additionalProperties: false
+      required: [enabled]
+      properties: { enabled: { type: boolean } }
+    Run:
+      type: object
+      additionalProperties: false
+      required: [id, taskId, cycleId, deliveryId, projectId, agentProfileId, kind, outcome, attempt, status, taskVersion, executionStage, resumeFromRunId, branchName, baseSha, headSha, prUrl, summary, errorCode, errorMessage, logsStorageKey, heartbeatAt, startedAt, finishedAt, createdAt, updatedAt]
+      properties:
+        id: { $ref: "#/components/schemas/RunId" }
+        taskId: { $ref: "#/components/schemas/TaskId" }
+        cycleId: { $ref: "#/components/schemas/TaskCycleId" }
+        deliveryId:
+          oneOf: [{ $ref: "#/components/schemas/DeliveryId" }, { type: "null" }]
+        projectId: { $ref: "#/components/schemas/ProjectId" }
+        agentProfileId: { $ref: "#/components/schemas/AgentProfileId" }
+        kind: { $ref: "#/components/schemas/RunKind" }
+        outcome: { type: [string, "null"], enum: [ready, blocked, null] }
+        attempt: { type: integer, minimum: 1 }
+        status: { type: string, enum: [queued, preparing, running, publishing, succeeded, failed, cancelled] }
+        taskVersion: { type: integer, minimum: 1 }
+        executionStage: { type: string, enum: [agent, publishing] }
+        resumeFromRunId:
+          oneOf: [{ $ref: "#/components/schemas/RunId" }, { type: "null" }]
+        branchName: { type: [string, "null"] }
+        baseSha: { type: [string, "null"] }
+        headSha: { type: [string, "null"] }
+        prUrl: { type: [string, "null"], format: uri }
+        summary: { type: [string, "null"] }
+        errorCode: { type: [string, "null"] }
+        errorMessage: { type: [string, "null"] }
+        logsStorageKey: { type: [string, "null"] }
+        heartbeatAt: { oneOf: [{ $ref: "#/components/schemas/Timestamp" }, { type: "null" }] }
+        startedAt: { oneOf: [{ $ref: "#/components/schemas/Timestamp" }, { type: "null" }] }
+        finishedAt: { oneOf: [{ $ref: "#/components/schemas/Timestamp" }, { type: "null" }] }
+        createdAt: { $ref: "#/components/schemas/Timestamp" }
+        updatedAt: { $ref: "#/components/schemas/Timestamp" }
+    RunAssignment:
+      type: object
+      additionalProperties: false
+      required: [run, task, project, agentProfile, delivery]
+      properties:
+        run: { $ref: "#/components/schemas/Run" }
+        task: { $ref: "#/components/schemas/RunTask" }
+        project: { $ref: "#/components/schemas/Project" }
+        agentProfile: { $ref: "#/components/schemas/AgentProfile" }
+        delivery:
+          oneOf: [{ $ref: "#/components/schemas/Delivery" }, { type: "null" }]
+    RunTask:
+      type: object
+      additionalProperties: false
+      required: [id, projectId, title, userRequest, curatorSpec, status, prUrl, version, automationPaused, currentCycleId, currentDeliveryId, questions, attachments, cycles, messages, specRevisions, createdAt, updatedAt, archivedAt]
+      properties:
+        id: { $ref: "#/components/schemas/TaskId" }
+        projectId: { $ref: "#/components/schemas/ProjectId" }
+        title: { type: string }
+        userRequest: { type: string }
+        curatorSpec: { type: string }
+        status: { $ref: "#/components/schemas/TaskStatus" }
+        prUrl: { type: [string, "null"], format: uri }
+        version: { type: integer, minimum: 1 }
+        automationPaused: { type: boolean }
+        currentCycleId: { $ref: "#/components/schemas/TaskCycleId" }
+        currentDeliveryId:
+          oneOf: [{ $ref: "#/components/schemas/DeliveryId" }, { type: "null" }]
+        questions:
+          type: array
+          items: { $ref: "#/components/schemas/Question" }
+        attachments:
+          type: array
+          items: { $ref: "#/components/schemas/Attachment" }
+        cycles: { type: array, items: { $ref: "#/components/schemas/TaskCycle" } }
+        messages: { type: array, items: { $ref: "#/components/schemas/TaskMessage" } }
+        specRevisions: { type: array, items: { $ref: "#/components/schemas/SpecRevision" } }
+        createdAt: { $ref: "#/components/schemas/Timestamp" }
+        updatedAt: { $ref: "#/components/schemas/Timestamp" }
+        archivedAt: { oneOf: [{ $ref: "#/components/schemas/Timestamp" }, { type: "null" }] }
+    AdvanceRunRequest:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status: { type: string, enum: [preparing, running, publishing] }
+        baseSha: { type: string, pattern: '^[0-9a-f]{40,64}$' }
+        headSha: { type: string, pattern: '^[0-9a-f]{40,64}$' }
+        logsStorageKey: { type: string, maxLength: 512 }
+        summary: { type: string, maxLength: 10000 }
+    CompleteRunRequest:
+      type: object
+      additionalProperties: false
+      required: [prUrl, headSha, summary]
+      properties:
+        prUrl: { type: string, format: uri, maxLength: 2048 }
+        headSha: { type: string, pattern: '^[0-9a-f]{40,64}$' }
+        summary: { type: string, maxLength: 10000 }
+    CuratorQuestionRequest:
+      type: object
+      additionalProperties: false
+      required: [text, type, options, allowOther]
+      properties:
+        text: { type: string, minLength: 1, maxLength: 5000 }
+        type: { $ref: "#/components/schemas/QuestionType" }
+        options:
+          type: array
+          maxItems: 20
+          items: { $ref: "#/components/schemas/QuestionOptionInput" }
+        allowOther: { type: boolean }
+    CompleteCurationRunRequest:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [outcome, curatorSpec, summary]
+          properties:
+            outcome: { type: string, const: ready }
+            title: { type: string, minLength: 1, maxLength: 200 }
+            curatorSpec: { type: string, minLength: 1, maxLength: 1048576 }
+            summary: { type: string, maxLength: 10000 }
+        - type: object
+          additionalProperties: false
+          required: [outcome, questions, summary]
+          properties:
+            outcome: { type: string, const: blocked }
+            title: { type: string, minLength: 1, maxLength: 200 }
+            curatorSpec: { type: string, maxLength: 1048576 }
+            questions:
+              type: array
+              minItems: 1
+              maxItems: 10
+              items: { $ref: "#/components/schemas/CuratorQuestionRequest" }
+            summary: { type: string, maxLength: 10000 }
+    FailRunRequest:
+      type: object
+      additionalProperties: false
+      required: [errorCode, errorMessage]
+      properties:
+        errorCode: { type: string, minLength: 1, maxLength: 100 }
+        errorMessage: { type: string, minLength: 1, maxLength: 5000 }
+        summary: { type: string, maxLength: 10000 }
+    CancelRunRequest:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties: { reason: { type: string, minLength: 1, maxLength: 2000 } }
+    RetryRunRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        mode: { type: string, enum: [auto, full, publish_only], default: auto }
+    ReconcileRunsRequest:
+      type: object
+      additionalProperties: false
+      required: [before]
+      properties:
+        before: { $ref: "#/components/schemas/Timestamp" }
+    GitCredentials:
+      type: object
+      additionalProperties: false
+      description: Runner-only response. Never exposed to Web or CLI actors.
+      required: [cloneUrl, token, fullName, defaultBranch]
+      properties:
+        cloneUrl: { type: string, format: uri }
+        token: { type: string, writeOnly: true }
+        fullName: { type: string }
+        defaultBranch: { type: string }
+    CreatePullRequestRequest:
+      type: object
+      additionalProperties: false
+      required: [title, body, head, base, draft]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 256 }
+        body: { type: string, maxLength: 65536 }
+        head: { type: string, minLength: 1, maxLength: 255 }
+        base: { type: string, minLength: 1, maxLength: 255 }
+        draft: { type: boolean, default: true }
+    TaskCycle:
+      type: object
+      additionalProperties: false
+      required: [id, taskId, number, deliveryId, createdAt, completedAt]
+      properties:
+        id: { $ref: "#/components/schemas/TaskCycleId" }
+        taskId: { $ref: "#/components/schemas/TaskId" }
+        number: { type: integer, minimum: 1 }
+        deliveryId:
+          oneOf: [{ $ref: "#/components/schemas/DeliveryId" }, { type: "null" }]
+        createdAt: { $ref: "#/components/schemas/Timestamp" }
+        completedAt: { oneOf: [{ $ref: "#/components/schemas/Timestamp" }, { type: "null" }] }
+    TaskMessage:
+      type: object
+      additionalProperties: false
+      required: [id, taskId, cycleId, type, text, createdAt]
+      properties:
+        id: { $ref: "#/components/schemas/TaskMessageId" }
+        taskId: { $ref: "#/components/schemas/TaskId" }
+        cycleId: { $ref: "#/components/schemas/TaskCycleId" }
+        type: { type: string, enum: [initial_request, change, context] }
+        text: { type: [string, "null"], maxLength: 100000 }
+        createdAt: { $ref: "#/components/schemas/Timestamp" }
+    SpecRevision:
+      type: object
+      additionalProperties: false
+      required: [id, taskId, cycleId, revision, content, createdAt]
+      properties:
+        id: { $ref: "#/components/schemas/SpecRevisionId" }
+        taskId: { $ref: "#/components/schemas/TaskId" }
+        cycleId: { $ref: "#/components/schemas/TaskCycleId" }
+        revision: { type: integer, minimum: 1 }
+        content: { type: string, maxLength: 1048576 }
+        createdAt: { $ref: "#/components/schemas/Timestamp" }
+    QuestionAnswer:
+      type: object
+      additionalProperties: false
+      required: [id, questionId, cycleId, revision, answerText, selectedOptionIds, createdAt]
+      properties:
+        id: { $ref: "#/components/schemas/QuestionAnswerId" }
+        questionId: { $ref: "#/components/schemas/QuestionId" }
+        cycleId: { $ref: "#/components/schemas/TaskCycleId" }
+        revision: { type: integer, minimum: 1 }
+        answerText: { type: [string, "null"] }
+        selectedOptionIds: { type: array, items: { $ref: "#/components/schemas/OptionId" } }
+        createdAt: { $ref: "#/components/schemas/Timestamp" }
+    Delivery:
+      type: object
+      additionalProperties: false
+      required: [id, taskId, branchName, baseBranch, prUrl, createdAt, updatedAt]
+      properties:
+        id: { $ref: "#/components/schemas/DeliveryId" }
+        taskId: { $ref: "#/components/schemas/TaskId" }
+        branchName: { type: [string, "null"] }
+        baseBranch: { type: [string, "null"], maxLength: 255 }
+        prUrl: { type: [string, "null"], format: uri }
+        createdAt: { $ref: "#/components/schemas/Timestamp" }
+        updatedAt: { $ref: "#/components/schemas/Timestamp" }
+    TimelineItem:
+      oneOf:
+        - allOf:
+            - { $ref: "#/components/schemas/TaskMessage" }
+            - type: object
+              required: [kind]
+              properties: { kind: { type: string, const: message } }
+        - allOf:
+            - { $ref: "#/components/schemas/SpecRevision" }
+            - type: object
+              required: [kind]
+              properties: { kind: { type: string, const: spec_revision } }
+        - type: object
+          required: [kind, cycleId, createdAt, question, answers]
+          properties:
+            kind: { type: string, const: question }
+            cycleId: { $ref: "#/components/schemas/TaskCycleId" }
+            createdAt: { $ref: "#/components/schemas/Timestamp" }
+            question: { $ref: "#/components/schemas/Question" }
+            answers: { type: array, items: { $ref: "#/components/schemas/QuestionAnswer" } }
+        - type: object
+          required: [kind, cycleId, createdAt, run]
+          properties:
+            kind: { type: string, const: run }
+            cycleId: { $ref: "#/components/schemas/TaskCycleId" }
+            createdAt: { $ref: "#/components/schemas/Timestamp" }
+            run: { $ref: "#/components/schemas/Run" }
+        - type: object
+          required: [kind, cycleId, createdAt, event]
+          properties:
+            kind: { type: string, const: event }
+            cycleId:
+              oneOf: [{ $ref: "#/components/schemas/TaskCycleId" }, { type: "null" }]
+            createdAt: { $ref: "#/components/schemas/Timestamp" }
+            event: { $ref: "#/components/schemas/TaskEvent" }
+    TimelinePage:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/TimelineItem" } }
+        nextCursor: { type: [string, "null"] }
+    TaskMessageMutationResult:
+      type: object
+      additionalProperties: false
+      required: [message, taskVersion]
+      properties:
+        message: { $ref: "#/components/schemas/TaskMessage" }
+        taskVersion: { type: integer, minimum: 2 }
+    AttachmentMutationResult:
+      type: object
+      additionalProperties: false
+      required: [attachment, taskVersion]
+      properties:
+        attachment:
+          $ref: "#/components/schemas/Attachment"
+        taskVersion:
+          type: integer
+          minimum: 2
+    TaskVersionResult:
+      type: object
+      additionalProperties: false
+      required: [taskVersion]
+      properties:
+        taskVersion:
+          type: integer
+          minimum: 2
+    TaskEvent:
+      type: object
+      additionalProperties: false
+      required: [id, taskId, type, actorType, metadata, createdAt]
+      properties:
+        id:
+          $ref: "#/components/schemas/EventId"
+        taskId:
+          $ref: "#/components/schemas/TaskId"
+        type:
+          type: string
+        actorType:
+          $ref: "#/components/schemas/ActorType"
+        metadata:
+          type: object
+          additionalProperties: true
+        createdAt:
+          $ref: "#/components/schemas/Timestamp"
+    TaskEventPage:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/TaskEvent"
+        nextCursor:
+          type: [string, "null"]
+    ErrorBody:
+      type: object
+      additionalProperties: false
+      required: [code, message, requestId]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+        requestId:
+          type: string
+    ErrorEnvelope:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          $ref: "#/components/schemas/ErrorBody"

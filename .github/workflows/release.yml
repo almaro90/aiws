@@ -1,0 +1,183 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing v-prefixed tag to release
+        required: true
+        default: v0.5.1
+
+permissions:
+  contents: read
+
+env:
+  VERSION: 0.5.1
+  REGISTRY: ghcr.io
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.11
+      - run: bun install --frozen-lockfile
+      - run: test "${RELEASE_TAG}" = "v${VERSION}"
+      - run: bun run format:check
+      - run: bun run lint
+      - run: bun run typecheck
+      - run: bun test
+      - run: bun run contract:check
+      - run: bun run build
+      - run: bunx playwright install --with-deps chromium
+      - run: bun run test:e2e
+      - run: bun run smoke:local
+      - run: bun run smoke
+
+  images:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    strategy:
+      matrix:
+        include:
+          - image: aiws
+            target: server
+          - image: aiws-runner-manager
+            target: runner-manager
+          - image: aiws-agent
+            target: agent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Normalize GHCR owner
+        id: registry
+        run: echo "owner=${GITHUB_REPOSITORY_OWNER,,}" >> "${GITHUB_OUTPUT}"
+      - name: Generate image tags and labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ steps.registry.outputs.owner }}/${{ matrix.image }}
+          tags: |
+            type=raw,value=${{ env.VERSION }}
+            type=raw,value=0.5
+            type=raw,value=0
+            type=raw,value=latest
+          labels: |
+            org.opencontainers.image.version=${{ env.VERSION }}
+            org.opencontainers.image.licenses=AGPL-3.0-only
+      - name: Build and publish multi-architecture image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: ${{ matrix.target }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: mode=max
+          sbom: true
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ steps.registry.outputs.owner }}/${{ matrix.image }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+  cli:
+    needs: verify
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target:
+          - linux-x64
+          - linux-arm64
+          - darwin-x64
+          - darwin-arm64
+          - windows-x64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.11
+      - run: bun install --frozen-lockfile
+      - run: bun run --cwd apps/cli compile:${{ matrix.target }}
+      - name: Stage compiled binary
+        run: |
+          mkdir staged
+          if [ "${{ matrix.target }}" = "windows-x64" ]; then
+            cp "apps/cli/dist/aiws-${{ matrix.target }}.exe" staged/aiws.exe
+          else
+            cp "apps/cli/dist/aiws-${{ matrix.target }}" staged/aiws
+            chmod 0755 staged/aiws
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cli-${{ matrix.target }}
+          path: staged
+
+  release:
+    needs: [images, cli]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Package release assets
+        run: |
+          mkdir -p release deployment/aiws-deployment
+          for target in linux-x64 linux-arm64 darwin-x64 darwin-arm64; do
+            tar -C "artifacts/cli-${target}" -czf "release/aiws-${target}.tar.gz" aiws
+          done
+          (cd artifacts/cli-windows-x64 && zip -q "../../release/aiws-windows-x64.zip" aiws.exe)
+          cp distribution/install-aiws.sh release/install-aiws.sh
+          sed -i "s|__AIWS_GITHUB_REPOSITORY__|${GITHUB_REPOSITORY}|g" release/install-aiws.sh
+          chmod 0755 release/install-aiws.sh
+          cp distribution/compose.yaml distribution/config.env.example \
+            distribution/init-secrets.sh distribution/README.md distribution/OPERATIONS.md \
+            LICENSE deployment/aiws-deployment/
+          cp -R skills/aiws-workflow deployment/aiws-deployment/
+          chmod 0755 deployment/aiws-deployment/init-secrets.sh
+          tar -C deployment -czf "release/aiws-deployment-v${VERSION}.tar.gz" aiws-deployment
+          printf '{"version":"%s","license":"AGPL-3.0-only","commit":"%s"}\n' \
+            "${VERSION}" "${GITHUB_SHA}" > release/release-metadata.json
+          (cd release && sha256sum aiws-* install-aiws.sh release-metadata.json > SHA256SUMS)
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            release/aiws-*.tar.gz
+            release/aiws-*.zip
+            release/install-aiws.sh
+            release/SHA256SUMS
+            release/release-metadata.json
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          gh release create "${RELEASE_TAG}" release/* \
+            --verify-tag \
+            --title "AIWS v${VERSION}" \
+            --generate-notes

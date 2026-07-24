@@ -1,0 +1,191 @@
+export type {
+  AttachmentId,
+  ProjectId,
+  QuestionId,
+  QuestionOptionId,
+  TaskEventId,
+  TaskId,
+  ConnectionId,
+  AgentProfileId,
+  RunId,
+  TaskCycleId,
+  TaskMessageId,
+  SpecRevisionId,
+  QuestionAnswerId,
+  DeliveryId,
+} from "./domain/ids.ts";
+export type {
+  Delivery,
+  QuestionAnswer as QuestionAnswerSnapshot,
+  SpecRevision,
+  TaskCycle,
+  TaskMessage,
+  TaskMessageType,
+  TimelineItem,
+  TimelinePage,
+} from "./domain/cycle.ts";
+export {
+  createAgentProfile,
+  createConnection,
+  createRun,
+  transitionRun,
+  heartbeatRun,
+  RUN_STATUSES,
+  type AgentAuthMode,
+  type AgentProfile,
+  type AgentModel,
+  type AgentModelCatalog,
+  type Connection,
+  type ConnectionStatus,
+  type Run,
+  type RunKind,
+  type RunOutcome,
+  type RunStatus,
+} from "./domain/automation.ts";
+export type { Attachment } from "./domain/attachment.ts";
+export type {
+  Question,
+  QuestionOption,
+  QuestionStatus,
+  QuestionType,
+} from "./domain/question.ts";
+export {
+  answerQuestion,
+  createQuestion,
+  dismissQuestion,
+  reopenQuestion,
+  updateQuestion,
+  type NewQuestion,
+  type QuestionAnswer,
+  type QuestionDefinition,
+} from "./domain/question.ts";
+export {
+  ACCOUNT_SCOPES,
+  archiveProject,
+  assertProjectActive,
+  createProject,
+  GIT_PROVIDERS,
+  isValidGitBranchName,
+  unarchiveProject,
+  updateProject,
+  type AccountScope,
+  type GitProvider,
+  type NewProject,
+  type Project,
+  type ProjectChanges,
+} from "./domain/project.ts";
+export {
+  ACTOR_TYPES,
+  createTaskEvent,
+  type ActorType,
+  type TaskEvent,
+  type TaskEventContext,
+  type TaskEventFact,
+  type TaskEventType,
+} from "./domain/task-event.ts";
+export {
+  archiveTask,
+  assertTaskActive,
+  createTask,
+  generateTaskTitle,
+  mutateTaskForQuestion,
+  resumeTaskAutomation,
+  mutateTaskForAttachment,
+  TASK_STATUSES,
+  transitionTask,
+  completeAutomatedTask,
+  completeCurationTask,
+  failAutomatedTask,
+  failCurationTask,
+  unarchiveTask,
+  updateTask,
+  type NewTask,
+  type Task,
+  type TaskChanges,
+  type TaskMutation,
+  type TaskStatus,
+} from "./domain/task.ts";
+export {
+  DomainError,
+  AttachmentLimitReachedError,
+  AttachmentTooLargeError,
+  InvalidTransitionError,
+  NotFoundError,
+  ProjectHasActiveTasksError,
+  StorageError,
+  UnsupportedMediaTypeError,
+  ValidationError,
+  VersionConflictError,
+  type ValidationIssue,
+} from "./errors/domain-errors.ts";
+export { SystemClock, type Clock } from "./ports/clock.ts";
+export { type IdGenerator, UlidIdGenerator } from "./ports/id-generator.ts";
+export type {
+  Page,
+  AttachmentMetadataStore,
+  StoredAttachment,
+  ProjectListQuery,
+  ProjectStore,
+  QuestionStore,
+  Stores,
+  TaskEventListQuery,
+  TaskEventStore,
+  TaskAggregate,
+  TaskListQuery,
+  TaskStore,
+  TaskSummary,
+  ConnectionStore,
+  AgentProfileStore,
+  RunStore,
+  CycleStore,
+  MessageStore,
+  SpecRevisionStore,
+  QuestionAnswerStore,
+  DeliveryStore,
+  TimelineStore,
+} from "./ports/stores.ts";
+export type { UnitOfWork } from "./ports/unit-of-work.ts";
+export type {
+  AttachmentBlobStore,
+  QuarantinedBlob,
+  StagedBlob,
+  UploadLimits,
+} from "./ports/attachment-blob-store.ts";
+export {
+  AttachmentUseCases,
+  type AddAttachmentInput,
+  type AttachmentMutationResult,
+  type OpenAttachmentResult,
+  type RemoveAttachmentInput,
+} from "./use-cases/attachments.ts";
+export {
+  ProjectUseCases,
+  type CreateProjectInput,
+  type CreateManagedProjectInput,
+} from "./use-cases/projects.ts";
+export {
+  TaskUseCases,
+  type ArchiveTaskInput,
+  type CreateTaskInput,
+  type ResumeTaskAutomationInput,
+  type TransitionTaskInput,
+  type UnarchiveTaskInput,
+  type UpdateTaskInput,
+} from "./use-cases/tasks.ts";
+export {
+  QuestionUseCases,
+  type AnswerQuestionInput,
+  type CreateQuestionInput,
+  type DismissQuestionInput,
+  type QuestionDefinitionInput,
+  type ReopenQuestionInput,
+  type UpdateQuestionInput,
+} from "./use-cases/questions.ts";
+export {
+  AgentProfileUseCases,
+  ConnectionUseCases,
+  RunUseCases,
+  scheduleMatches,
+  type RunAssignment,
+} from "./use-cases/automation.ts";
+export { MessageUseCases } from "./use-cases/messages.ts";

@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.11
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Check formatting
+        run: bun run format:check
+
+      - name: Lint and architecture
+        run: bun run lint
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Test
+        run: bun test
+
+      - name: Check OpenAPI snapshot
+        run: bun run contract:check
+
+      - name: Build
+        run: bun run build
+
+      - name: Install Playwright Chromium
+        run: bunx playwright install --with-deps chromium
+
+      - name: Test Web UI
+        run: bun run test:e2e
+
+      - name: Compile CLI Linux x64
+        run: bun run --cwd apps/cli compile:linux-x64
+
+      - name: Compile CLI Linux ARM64
+        run: bun run --cwd apps/cli compile:linux-arm64
+
+      - name: Compile CLI macOS x64
+        run: bun run --cwd apps/cli compile:darwin-x64
+
+      - name: Compile CLI macOS ARM64
+        run: bun run --cwd apps/cli compile:darwin-arm64
+
+      - name: Compile CLI Windows x64
+        run: bun run --cwd apps/cli compile:windows-x64
+
+      - name: Local smoke
+        run: bun run smoke:local
+
+      - name: Docker smoke
+        run: bun run smoke

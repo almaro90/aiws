@@ -1,0 +1,4 @@
+interface:
+  display_name: "AIWS Workflow"
+  short_description: "Prepara, cura e implementa Tasks de AIWS"
+  default_prompt: "Usa $aiws-workflow para preparar, curar o implementar la siguiente Task de AIWS de forma segura."

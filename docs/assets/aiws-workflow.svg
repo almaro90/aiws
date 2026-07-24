@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 920" width="1600" height="920" role="img" aria-labelledby="workflow-title workflow-desc">
+  <title id="workflow-title">Workflow de una Task en AIWS</title>
+  <desc id="workflow-desc">Draft pasa explícitamente a Curating. Una Question abierta lleva la Task a Blocked y la última respuesta la devuelve automáticamente a Curating. El curator decide Ready, la implementación pasa por Implementing hasta Done y un cambio crea otro Cycle en Curating.</desc>
+  <defs>
+    <marker id="arrow-explicit" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M1 1 11 6 1 11z" fill="#155e52"/></marker>
+    <marker id="arrow-auto" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M1 1 11 6 1 11z" fill="#9a5b13"/></marker>
+    <filter id="shadow" x="-10%" y="-20%" width="120%" height="150%"><feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#17211b" flood-opacity=".1"/></filter>
+    <style>
+      .title{font:800 52px Inter,ui-sans-serif,system-ui,sans-serif;fill:#17211b;letter-spacing:-1.5px}.subtitle{font:400 22px Inter,ui-sans-serif,system-ui,sans-serif;fill:#4d5a52}.state{font:750 25px Inter,ui-sans-serif,system-ui,sans-serif;fill:#17211b}.note{font:500 15px Inter,ui-sans-serif,system-ui,sans-serif;fill:#4d5a52}.done{fill:#fffdf7}.done-note{fill:#d8ebe5}.label{font:650 16px Inter,ui-sans-serif,system-ui,sans-serif;fill:#17211b}.actor{font:750 14px Inter,ui-sans-serif,system-ui,sans-serif;fill:#155e52;letter-spacing:.4px}.auto-label{fill:#8a4d0a}.legend{font:600 16px Inter,ui-sans-serif,system-ui,sans-serif;fill:#4d5a52}.explicit{fill:none;stroke:#155e52;stroke-width:4;stroke-linecap:round;stroke-linejoin:round;marker-end:url(#arrow-explicit)}.automatic{fill:none;stroke:#9a5b13;stroke-width:4;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:10 10;marker-end:url(#arrow-auto)}
+    </style>
+  </defs>
+  <rect width="1600" height="920" rx="36" fill="#f7f5ee"/>
+  <circle cx="1485" cy="92" r="145" fill="#d8ebe5" opacity=".72"/><circle cx="94" cy="822" r="116" fill="#f0dfc6" opacity=".72"/>
+  <text x="96" y="96" class="title">Una Task, un workflow explícito</text>
+  <text x="96" y="137" class="subtitle">La petición se congela al entrar en Curating; Ready siempre es una decisión del curator.</text>
+
+  <g filter="url(#shadow)">
+    <rect x="48" y="282" width="230" height="142" rx="26" fill="#fffdf7" stroke="#155e52" stroke-width="3"/>
+    <rect x="363" y="282" width="230" height="142" rx="26" fill="#fffdf7" stroke="#155e52" stroke-width="3"/>
+    <rect x="678" y="282" width="230" height="142" rx="26" fill="#fffdf7" stroke="#155e52" stroke-width="3"/>
+    <rect x="993" y="282" width="230" height="142" rx="26" fill="#fffdf7" stroke="#155e52" stroke-width="3"/>
+    <rect x="1308" y="282" width="230" height="142" rx="26" fill="#155e52" stroke="#0d473d" stroke-width="3"/>
+  </g>
+  <g text-anchor="middle">
+    <text x="163" y="344" class="state">Draft</text><text x="163" y="379" class="note">petición editable</text>
+    <text x="478" y="344" class="state">Curating</text><text x="478" y="379" class="note">curación en curso</text>
+    <text x="793" y="344" class="state">Ready</text><text x="793" y="379" class="note">lista para reclamar</text>
+    <text x="1108" y="344" class="state">Implementing</text><text x="1108" y="379" class="note">trabajo reclamado</text>
+    <text x="1423" y="344" class="state done">Done</text><text x="1423" y="379" class="note done-note">trabajo terminado</text>
+  </g>
+
+  <path d="M278 338h75" class="explicit"/><text x="315" y="230" text-anchor="middle" class="actor">USUARIO</text><text x="315" y="256" text-anchor="middle" class="label">envía a curator</text>
+  <path d="M593 338h75" class="explicit"/><text x="630" y="230" text-anchor="middle" class="actor">CURATOR</text><text x="630" y="256" text-anchor="middle" class="label">decide Ready</text>
+  <path d="M908 338h75" class="explicit"/><text x="945" y="230" text-anchor="middle" class="actor">IMPLEMENTADOR</text><text x="945" y="256" text-anchor="middle" class="label">claim atómico</text>
+  <path d="M1223 338h75" class="explicit"/><text x="1260" y="230" text-anchor="middle" class="actor">IMPLEMENTADOR</text><text x="1260" y="256" text-anchor="middle" class="label">completa</text>
+
+  <g filter="url(#shadow)"><rect x="315" y="666" width="326" height="142" rx="26" fill="#fff7eb" stroke="#9a5b13" stroke-width="3"/></g>
+  <g text-anchor="middle"><text x="478" y="727" class="state">Blocked</text><text x="478" y="763" class="note">espera respuestas</text></g>
+  <path d="M478 424v232" class="automatic"/>
+  <rect x="520" y="516" width="310" height="70" rx="18" fill="#fffdf7" stroke="#e2c79f" stroke-width="2"/><text x="675" y="542" text-anchor="middle" class="actor auto-label">CURATOR · QUESTION</text><text x="675" y="568" text-anchor="middle" class="label">una abierta bloquea</text>
+  <path d="M315 731H218c-48 0-70-26-70-72V474c0-34 22-50 55-50h265" class="automatic"/>
+  <rect x="82" y="516" width="326" height="70" rx="18" fill="#fffdf7" stroke="#e2c79f" stroke-width="2"/><text x="245" y="542" text-anchor="middle" class="actor auto-label">USUARIO</text><text x="245" y="568" text-anchor="middle" class="label">la última respuesta reanuda</text>
+
+  <path d="M1423 424v112c0 34-27 55-62 55H530c-35 0-52-20-52-55V434" class="explicit"/>
+  <rect x="890" y="558" width="324" height="66" rx="18" fill="#fffdf7" stroke="#d8d5ca" stroke-width="2"/><text x="1052" y="584" text-anchor="middle" class="actor">USUARIO · MESSAGE</text><text x="1052" y="608" text-anchor="middle" class="label">crea Cycle y vuelve a Curating</text>
+
+  <g transform="translate(1005 846)"><path d="M0 0h62" class="explicit"/><text x="79" y="6" class="legend">transición explícita</text><path d="M286 0h62" class="automatic"/><text x="365" y="6" class="legend">transición automática</text></g>
+</svg>

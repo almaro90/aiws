@@ -1,0 +1,11 @@
+.git
+.agents
+.codex
+**/dist
+coverage
+node_modules
+.env
+.env.*
+!.env.example
+*.log
+aiws.sqlite*

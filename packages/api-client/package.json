@@ -1,0 +1,22 @@
+{
+  "name": "@aiws/api-client",
+  "version": "0.5.1",
+  "license": "AGPL-3.0-only",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "generate": "openapi-typescript ../../docs/contracts/openapi.yaml -o ./src/generated/schema.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "bun build ./src/index.ts --outdir ./dist --target browser"
+  },
+  "dependencies": {
+    "@aiws/contracts": "workspace:*",
+    "openapi-fetch": "0.15.0"
+  },
+  "devDependencies": {
+    "openapi-typescript": "7.10.1"
+  }
+}

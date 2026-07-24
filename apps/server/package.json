@@ -1,0 +1,22 @@
+{
+  "name": "@aiws/server",
+  "version": "0.5.1",
+  "license": "AGPL-3.0-only",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./config": "./src/config.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "bun build ./src/index.ts --outdir ./dist --target bun"
+  },
+  "dependencies": {
+    "@aiws/contracts": "workspace:*",
+    "@aiws/core": "workspace:*",
+    "@aiws/sqlite": "workspace:*",
+    "hono": "4.10.6",
+    "zod": "4.1.12"
+  }
+}

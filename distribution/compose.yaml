@@ -1,0 +1,69 @@
+name: aiws
+
+services:
+  aiws:
+    image: ${AIWS_IMAGE_NAMESPACE:?Set AIWS_IMAGE_NAMESPACE}/aiws:${AIWS_VERSION:-0.5.1}
+    restart: unless-stopped
+    env_file: ${AIWS_ENV_FILE:-.env}
+    environment:
+      AIWS_PORT: 3000
+      AIWS_RUNNER_CONTROL_URL: http://runner-manager:4318
+    ports:
+      - "127.0.0.1:${AIWS_PORT:-3000}:3000"
+    volumes:
+      - aiws-data:/data
+      - aiws-repositories:/repositories
+      - type: bind
+        source: ${AIWS_REPO_ROOT:?Set AIWS_REPO_ROOT}
+        target: ${AIWS_REPO_ROOT:?Set AIWS_REPO_ROOT}
+        read_only: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 15s
+    healthcheck:
+      test: ["CMD", "/app/aiws-server", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks: [runtime]
+
+  runner-manager:
+    image: ${AIWS_IMAGE_NAMESPACE:?Set AIWS_IMAGE_NAMESPACE}/aiws-runner-manager:${AIWS_VERSION:-0.5.1}
+    restart: unless-stopped
+    env_file: ${AIWS_ENV_FILE:-.env}
+    environment:
+      AIWS_API_URL: http://aiws:3000
+      AIWS_AGENT_IMAGE: ${AIWS_IMAGE_NAMESPACE:?Set AIWS_IMAGE_NAMESPACE}/aiws-agent:${AIWS_VERSION:-0.5.1}
+      AIWS_DOCKER_NETWORK: ${AIWS_DOCKER_NETWORK:-aiws-runtime}
+      AIWS_CREDENTIAL_PROXY_URL: http://runner-manager:4317/v1
+    volumes:
+      - aiws-repositories:/repositories
+      - aiws-workspaces:/workspaces
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      aiws:
+        condition: service_healthy
+    networks: [runtime]
+
+  agent-image:
+    image: ${AIWS_IMAGE_NAMESPACE:?Set AIWS_IMAGE_NAMESPACE}/aiws-agent:${AIWS_VERSION:-0.5.1}
+    profiles: [images]
+    command: ["true"]
+
+volumes:
+  aiws-data:
+  aiws-repositories:
+    name: ${AIWS_REPOSITORIES_VOLUME:-aiws-repositories}
+  aiws-workspaces:
+    name: ${AIWS_WORKSPACES_VOLUME:-aiws-workspaces}
+  aiws-codex-auth:
+    name: ${AIWS_CODEX_AUTH_VOLUME:-aiws-codex-auth}
+
+networks:
+  runtime:
+    name: ${AIWS_DOCKER_NETWORK:-aiws-runtime}
