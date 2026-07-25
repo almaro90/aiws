@@ -1560,13 +1560,30 @@ for (const viewport of [
       }
       await expect(page.locator("main")).toBeVisible();
       await page.evaluate(() => document.fonts.ready);
-      await expect
-        .poll(() =>
-          page.evaluate(
-            () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
-          ),
-        )
-        .toBe(false);
+      const layout = await page.evaluate(() => ({
+        clientWidth: document.documentElement.clientWidth,
+        scrollWidth: document.documentElement.scrollWidth,
+        offenders: [...document.querySelectorAll("*")]
+          .filter((element) => {
+            const bounds = element.getBoundingClientRect();
+            return bounds.left < -0.5 || bounds.right > document.documentElement.clientWidth + 0.5;
+          })
+          .slice(0, 10)
+          .map((element) => {
+            const bounds = element.getBoundingClientRect();
+            return {
+              className: element.getAttribute("class"),
+              left: bounds.left,
+              right: bounds.right,
+              tagName: element.tagName,
+              text: element.textContent?.slice(0, 80),
+              width: bounds.width,
+            };
+          }),
+      }));
+      if (layout.scrollWidth > layout.clientWidth) {
+        throw new Error(`[DEBUG-ci-reflow] ${path}: ${JSON.stringify(layout)}`);
+      }
     }
   });
 }
