@@ -1,7 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 const root = resolve(import.meta.dir, "../..");
 const guideNames = [
@@ -11,6 +20,45 @@ const guideNames = [
   "projects-and-tasks.md",
 ] as const;
 const read = (path: string) => Bun.file(resolve(root, path)).text();
+const requiredInitializerEnvironment = {
+  AIWS_IMAGE_NAMESPACE: "example.invalid",
+  AIWS_PUBLIC_URL: "https://required.example.com",
+  AIWS_ALLOWED_REPO_ROOTS: '["/srv/required-repos"]',
+  AIWS_REPO_ROOT: "/srv/required-repos",
+  AIWS_ADMIN_USERNAME: "required-admin",
+} as const;
+
+function createFakeDocker(directory: string): { bin: string; marker: string } {
+  const bin = join(directory, "bin");
+  const marker = join(directory, "docker-called");
+  mkdirSync(bin);
+  const executable = join(bin, "docker");
+  writeFileSync(
+    executable,
+    `#!/bin/sh
+set -eu
+: >"\${AIWS_DOCKER_MARKER}"
+for argument do command="\${argument}"; done
+case "\${command}" in
+  hash-password) printf '%s\\n' '$argon2id$v=19$test-hash' ;;
+  generate-session-secret) printf '%s\\n' 'generated-session-secret' ;;
+  generate-notification-encryption-key) printf '%s\\n' 'AIWS_NOTIFICATION_ENCRYPTION_KEY=generated-notification-key' ;;
+  generate-api-token)
+    printf '%s\\n' 'AIWS_API_TOKEN=generated-api-token'
+    printf '%s\\n' 'AIWS_API_TOKEN_HASH=sha256:generated-api-token-hash'
+    ;;
+  generate-runner-token)
+    printf '%s\\n' 'AIWS_RUNNER_TOKEN=generated-runner-token'
+    printf '%s\\n' 'AIWS_RUNNER_TOKEN_HASH=sha256:generated-runner-token-hash'
+    ;;
+  generate-runner-control-secret) printf '%s\\n' 'AIWS_RUNNER_CONTROL_SECRET=generated-runner-control-secret' ;;
+  *) exit 2 ;;
+esac
+`,
+  );
+  chmodSync(executable, 0o755);
+  return { bin, marker };
+}
 
 describe("operator guides", () => {
   test("README routes every audience to the four guides", async () => {
@@ -122,20 +170,110 @@ describe("operator guides", () => {
     expect(script).not.toContain("replace-with-github-app-id");
     expect(script).not.toContain("replace-with-entra-application-client-id");
 
-    const temporary = resolve(tmpdir(), `aiws-guide-test-${process.pid}`);
-    mkdirSync(temporary, { recursive: true });
-    const partial = Bun.spawnSync({
-      cmd: ["sh", resolve(root, "distribution/init-secrets.sh")],
-      cwd: temporary,
-      env: {
-        PATH: process.env.PATH ?? "",
-        AIWS_IMAGE_NAMESPACE: "example.invalid",
-        AIWS_GITHUB_APP_ID: "123",
-      },
-      stdout: "pipe",
-      stderr: "pipe",
+    const temporary = mkdtempSync(join(tmpdir(), "aiws-guide-test-"));
+    try {
+      const partial = Bun.spawnSync({
+        cmd: ["sh", resolve(root, "distribution/init-secrets.sh")],
+        cwd: temporary,
+        env: {
+          PATH: process.env.PATH ?? "",
+          ...requiredInitializerEnvironment,
+          AIWS_GITHUB_APP_ID: "123",
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      expect(partial.exitCode).toBe(1);
+      expect(partial.stderr.toString()).toContain("GitHub requires");
+    } finally {
+      rmSync(temporary, { recursive: true, force: true });
+    }
+  });
+
+  for (const missing of [
+    "AIWS_PUBLIC_URL",
+    "AIWS_ALLOWED_REPO_ROOTS",
+    "AIWS_REPO_ROOT",
+    "AIWS_ADMIN_USERNAME",
+  ] as const) {
+    test(`init rejects missing or empty ${missing} before Docker`, () => {
+      const temporary = mkdtempSync(join(tmpdir(), "aiws-init-required-"));
+      try {
+        const fakeDocker = createFakeDocker(temporary);
+        for (const state of ["absent", "empty"]) {
+          const environment: Record<string, string> = {
+            PATH: `${fakeDocker.bin}:${process.env.PATH ?? ""}`,
+            AIWS_DOCKER_MARKER: fakeDocker.marker,
+            ...requiredInitializerEnvironment,
+          };
+          if (state === "absent") delete environment[missing];
+          else environment[missing] = "";
+
+          const result = Bun.spawnSync({
+            cmd: ["sh", resolve(root, "distribution/init-secrets.sh")],
+            cwd: temporary,
+            env: environment,
+            stdout: "pipe",
+            stderr: "pipe",
+          });
+          expect(result.exitCode).toBe(1);
+          expect(result.stderr.toString().trim()).toBe(
+            `Required environment variable ${missing} is missing or empty.`,
+          );
+        }
+        expect(existsSync(fakeDocker.marker)).toBeFalse();
+      } finally {
+        rmSync(temporary, { recursive: true, force: true });
+      }
     });
-    expect(partial.exitCode).toBe(1);
-    expect(partial.stderr.toString()).toContain("GitHub requires");
+  }
+
+  test("init preserves required values, generates credentials and writes mode 0600", () => {
+    const temporary = mkdtempSync(join(tmpdir(), "aiws-init-success-"));
+    try {
+      const fakeDocker = createFakeDocker(temporary);
+      const supplied = {
+        AIWS_PUBLIC_URL: "https://operator.example.com",
+        AIWS_ALLOWED_REPO_ROOTS: '["/srv/operator repos"]',
+        AIWS_REPO_ROOT: "/srv/operator repos",
+        AIWS_ADMIN_USERNAME: "operator-admin",
+      };
+      const result = Bun.spawnSync({
+        cmd: ["sh", resolve(root, "distribution/init-secrets.sh")],
+        cwd: temporary,
+        env: {
+          PATH: `${fakeDocker.bin}:${process.env.PATH ?? ""}`,
+          AIWS_DOCKER_MARKER: fakeDocker.marker,
+          AIWS_IMAGE_NAMESPACE: "registry.example.com/operator",
+          ...supplied,
+        },
+        stdin: new TextEncoder().encode("not-used-by-fake-docker\n"),
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      expect(result.exitCode).toBe(0);
+      expect(existsSync(fakeDocker.marker)).toBeTrue();
+
+      const environment = readFileSync(join(temporary, ".env"), "utf8");
+      for (const [name, value] of Object.entries(supplied)) {
+        expect(environment.match(new RegExp(`^${name}=.*$`, "mu"))?.[0]).toBe(`${name}=${value}`);
+      }
+      for (const generated of [
+        "AIWS_ADMIN_PASSWORD_HASH='$argon2id$v=19$test-hash'",
+        "AIWS_SESSION_SECRET=generated-session-secret",
+        "AIWS_NOTIFICATION_ENCRYPTION_KEY=generated-notification-key",
+        "AIWS_API_TOKEN_HASH=sha256:generated-api-token-hash",
+        "AIWS_RUNNER_TOKEN=generated-runner-token",
+        "AIWS_RUNNER_TOKEN_HASH=sha256:generated-runner-token-hash",
+        "AIWS_RUNNER_CONTROL_SECRET=generated-runner-control-secret",
+      ]) {
+        expect(environment).toContain(generated);
+      }
+      expect(readFileSync(join(temporary, "aiws-api-token"), "utf8")).toBe("generated-api-token\n");
+      expect(statSync(join(temporary, ".env")).mode & 0o777).toBe(0o600);
+      expect(statSync(join(temporary, "aiws-api-token")).mode & 0o777).toBe(0o600);
+    } finally {
+      rmSync(temporary, { recursive: true, force: true });
+    }
   });
 });

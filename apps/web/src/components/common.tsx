@@ -129,7 +129,7 @@ function SidebarFooter({
   return (
     <div className="mt-auto space-y-2 border-t p-3">
       <p className={cn("px-2 text-xs text-muted-foreground", collapsed && "lg:sr-only")}>
-        AIWS · v0.6.0
+        AIWS · v0.6.1
       </p>
       <Button
         className={cn("w-full", collapsed ? "lg:justify-center" : "justify-start")}

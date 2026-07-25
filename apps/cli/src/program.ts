@@ -17,7 +17,7 @@ import { type CliIo, processIo, readTextInput, writeError, writeResult } from ".
 
 type Environment = Readonly<Record<string, string | undefined>>;
 type ApiResult<T> = Promise<{ data?: T; error?: unknown; response: Response }>;
-const CLI_VERSION = "0.6.0";
+const CLI_VERSION = "0.6.1";
 
 type DoctorStatus = "pass" | "warning" | "fail" | "skipped";
 interface DoctorCheck {

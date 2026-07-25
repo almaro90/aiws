@@ -339,7 +339,7 @@ No registrar:
 ```yaml
 services:
   aiws:
-    image: ghcr.io/example/aiws:0.6.0
+    image: ghcr.io/example/aiws:0.6.1
     restart: unless-stopped
     env_file: .env
     ports:

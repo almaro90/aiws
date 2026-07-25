@@ -1,5 +1,5 @@
 #!/bin/sh
-set -eu
+set -e
 
 umask 077
 
@@ -9,7 +9,24 @@ if [ -e .env ]; then
 fi
 
 : "${AIWS_IMAGE_NAMESPACE:?Set AIWS_IMAGE_NAMESPACE, for example ghcr.io/almaro90}"
-AIWS_VERSION="${AIWS_VERSION:-0.6.0}"
+
+require_non_empty() {
+  variable_name="$1"
+  variable_value="$2"
+  if [ -z "${variable_value}" ]; then
+    printf 'Required environment variable %s is missing or empty.\n' "${variable_name}" >&2
+    exit 1
+  fi
+}
+
+require_non_empty AIWS_PUBLIC_URL "${AIWS_PUBLIC_URL}"
+require_non_empty AIWS_ALLOWED_REPO_ROOTS "${AIWS_ALLOWED_REPO_ROOTS}"
+require_non_empty AIWS_REPO_ROOT "${AIWS_REPO_ROOT}"
+require_non_empty AIWS_ADMIN_USERNAME "${AIWS_ADMIN_USERNAME}"
+
+set -u
+
+AIWS_VERSION="${AIWS_VERSION:-0.6.1}"
 AIWS_SERVER_IMAGE="${AIWS_IMAGE_NAMESPACE}/aiws:${AIWS_VERSION}"
 
 github_count=0
@@ -52,9 +69,9 @@ notification_secret="$(printf '%s\n' "${notification_key}" | sed -n 's/^AIWS_NOT
   printf 'AIWS_VERSION=%s\n' "${AIWS_VERSION}"
   printf 'AIWS_IMAGE_NAMESPACE=%s\n' "${AIWS_IMAGE_NAMESPACE}"
   printf 'AIWS_ENV=production\n'
-  printf 'AIWS_PUBLIC_URL=%s\n' "${AIWS_PUBLIC_URL:-https://aiws.example.com}"
-  printf 'AIWS_ALLOWED_REPO_ROOTS=%s\n' "${AIWS_ALLOWED_REPO_ROOTS:-[\"/srv/repos\"]}"
-  printf 'AIWS_ADMIN_USERNAME=%s\n' "${AIWS_ADMIN_USERNAME:-admin}"
+  printf 'AIWS_PUBLIC_URL=%s\n' "${AIWS_PUBLIC_URL}"
+  printf 'AIWS_ALLOWED_REPO_ROOTS=%s\n' "${AIWS_ALLOWED_REPO_ROOTS}"
+  printf 'AIWS_ADMIN_USERNAME=%s\n' "${AIWS_ADMIN_USERNAME}"
   printf "AIWS_ADMIN_PASSWORD_HASH='%s'\n" "${password_hash}"
   printf 'AIWS_SESSION_SECRET=%s\n' "${session_secret}"
   printf 'AIWS_NOTIFICATION_ENCRYPTION_KEY=%s\n' "${notification_secret}"
@@ -72,7 +89,7 @@ notification_secret="$(printf '%s\n' "${notification_key}" | sed -n 's/^AIWS_NOT
     printf 'AIWS_AZURE_DEVOPS_CLIENT_SECRET=%s\n' "${AIWS_AZURE_DEVOPS_CLIENT_SECRET}"
     printf 'AIWS_CONNECTION_ENCRYPTION_KEY=%s\n' "${AIWS_CONNECTION_ENCRYPTION_KEY}"
   fi
-  printf 'AIWS_REPO_ROOT=%s\n' "${AIWS_REPO_ROOT:-/srv/repos}"
+  printf 'AIWS_REPO_ROOT=%s\n' "${AIWS_REPO_ROOT}"
   printf 'AIWS_PORT=%s\n' "${AIWS_PORT:-3000}"
   printf 'AIWS_DOCKER_NETWORK=%s\n' "${AIWS_DOCKER_NETWORK:-aiws-runtime}"
   printf 'AIWS_REPOSITORIES_VOLUME=%s\n' "${AIWS_REPOSITORIES_VOLUME:-aiws-repositories}"

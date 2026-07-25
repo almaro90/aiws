@@ -133,7 +133,7 @@ export class CodexModelCatalog {
     };
 
     await request(1, "initialize", {
-      clientInfo: { name: "aiws", title: "AIWS", version: "0.6.0" },
+      clientInfo: { name: "aiws", title: "AIWS", version: "0.6.1" },
       capabilities: { experimentalApi: true, requestAttestation: false },
     });
     stdin.write(`${JSON.stringify({ method: "initialized" })}\n`);

@@ -1,6 +1,6 @@
 # Instalación y operación
 
-Esta guía instala AIWS v0.6.0 desde el bundle publicado. No requiere Bun ni un checkout y no
+Esta guía instala AIWS v0.6.1 desde el bundle publicado. No requiere Bun ni un checkout y no
 instala agentes externos.
 
 ## Requisitos y frontera HTTPS
@@ -14,7 +14,7 @@ la URL HTTPS externa exacta, sin slash final. Los callbacks de providers se deri
 
 ## Instalar
 
-1. Descarga `aiws-deployment-v0.6.0.tar.gz` desde la release, verifica su entrada en
+1. Descarga `aiws-deployment-v0.6.1.tar.gz` desde la release, verifica su entrada en
    `SHA256SUMS` y extráelo en un directorio vacío.
 2. Exporta el namespace y los valores no predeterminados:
 
@@ -23,6 +23,7 @@ la URL HTTPS externa exacta, sin slash final. Los callbacks de providers se deri
    export AIWS_PUBLIC_URL=https://aiws.example.com
    export AIWS_ALLOWED_REPO_ROOTS='["/srv/repos"]'
    export AIWS_REPO_ROOT=/srv/repos
+   export AIWS_ADMIN_USERNAME=admin
    ```
 
 3. Si vas a usar un provider gestionado, exporta su bloque completo antes del siguiente paso.
@@ -39,7 +40,10 @@ la URL HTTPS externa exacta, sin slash final. Los callbacks de providers se deri
    curl --fail http://127.0.0.1:3000/api/v1/health
    ```
 
-La respuesta de health debe ser `{"status":"ok","version":"0.6.0"}`. Conserva `.env` como secreto.
+Las cuatro variables anteriores son obligatorias y no tienen fallback en `init-secrets.sh`; un
+valor ausente o vacío detiene el inicializador antes de invocar Docker.
+
+La respuesta de health debe ser `{"status":"ok","version":"0.6.1"}`. Conserva `.env` como secreto.
 Configura el CLI con `aiws config set --system --url ... --token-stdin < aiws-api-token` y elimina
 la copia temporal del token cuando ya no sea necesaria.
 

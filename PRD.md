@@ -1,6 +1,6 @@
 # AIWS — Product Requirements Document
 
-> Versión: v0.6.0
+> Versión: v0.6.1
 > Estado: Hito 24 completado
 > Fecha: 25 de julio de 2026
 

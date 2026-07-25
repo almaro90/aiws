@@ -17,7 +17,7 @@ const passwordHash = await Bun.password.hash("distribution-smoke-password", {
 });
 const composeEnvironment = {
   ...process.env,
-  AIWS_VERSION: "0.6.0",
+  AIWS_VERSION: "0.6.1",
   AIWS_IMAGE_NAMESPACE: namespace,
   AIWS_PORT: String(port),
   AIWS_ENV_FILE: join(root, ".env"),
@@ -44,24 +44,24 @@ try {
   await mkdir(repository, { recursive: true });
   await run(["git", "init", repository]);
   await Promise.all([
-    run(["docker", "build", "--target", "server", "-t", `${namespace}/aiws:0.6.0`, "."]),
+    run(["docker", "build", "--target", "server", "-t", `${namespace}/aiws:0.6.1`, "."]),
     run([
       "docker",
       "build",
       "--target",
       "runner-manager",
       "-t",
-      `${namespace}/aiws-runner-manager:0.6.0`,
+      `${namespace}/aiws-runner-manager:0.6.1`,
       ".",
     ]),
-    run(["docker", "build", "--target", "agent", "-t", `${namespace}/aiws-agent:0.6.0`, "."]),
+    run(["docker", "build", "--target", "agent", "-t", `${namespace}/aiws-agent:0.6.1`, "."]),
   ]);
 
   await Bun.write(join(root, "compose.yaml"), await Bun.file("distribution/compose.yaml").text());
   await Bun.write(
     join(root, ".env"),
     [
-      "AIWS_VERSION=0.6.0",
+      "AIWS_VERSION=0.6.1",
       `AIWS_IMAGE_NAMESPACE=${namespace}`,
       "AIWS_ENV=production",
       "AIWS_PUBLIC_URL=https://aiws.local",
@@ -129,7 +129,7 @@ try {
 } finally {
   await runResult([...compose, "down", "--volumes", "--remove-orphans"], composeEnvironment);
   for (const image of ["aiws", "aiws-runner-manager", "aiws-agent"]) {
-    await runResult(["docker", "image", "rm", "--force", `${namespace}/${image}:0.6.0`]);
+    await runResult(["docker", "image", "rm", "--force", `${namespace}/${image}:0.6.1`]);
   }
   await rm(root, { recursive: true, force: true });
 }

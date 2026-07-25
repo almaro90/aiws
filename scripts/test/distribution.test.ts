@@ -45,6 +45,15 @@ describe("Hito 23 distribution contracts", () => {
     expect(initializer).toContain("chmod 0600 .env aiws-api-token");
     expect(initializer).toContain("github_count");
     expect(initializer).toContain("azure_count");
+    for (const variable of [
+      "AIWS_PUBLIC_URL",
+      "AIWS_ALLOWED_REPO_ROOTS",
+      "AIWS_REPO_ROOT",
+      "AIWS_ADMIN_USERNAME",
+    ]) {
+      expect(initializer).toContain(`require_non_empty ${variable}`);
+      expect(initializer).not.toContain(`\${${variable}:-`);
+    }
     expect(initializer).not.toContain("replace-with-github-app-id");
     expect(initializer).not.toContain("replace-with-entra-application-client-id");
   });

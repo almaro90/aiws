@@ -48,12 +48,12 @@ Inicializar una vez el volumen dedicado desde una terminal confiable:
 ```bash
 docker run --rm --user root \
   -v aiws-codex-auth:/codex-home \
-  aiws-agent:0.6.0 chown -R 1000:1000 /codex-home
+  aiws-agent:0.6.1 chown -R 1000:1000 /codex-home
 
 docker run --rm -it \
   -v aiws-codex-auth:/codex-home \
   -e CODEX_HOME=/codex-home \
-  aiws-agent:0.6.0 codex login --device-auth
+  aiws-agent:0.6.1 codex login --device-auth
 ```
 
 Crear después un perfil `chatgpt_session`. Cada despliegue debe usar un volumen distinto por frontera de confianza; no compartirlo entre organizaciones.

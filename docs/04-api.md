@@ -156,7 +156,7 @@ No toca datos de usuario.
 ```json
 {
   "status": "ok",
-  "version": "0.6.0"
+  "version": "0.6.1"
 }
 ```
 
@@ -165,7 +165,7 @@ Si SQLite no está disponible, 503:
 ```json
 {
   "status": "unhealthy",
-  "version": "0.6.0"
+  "version": "0.6.1"
 }
 ```
 

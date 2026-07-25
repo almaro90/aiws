@@ -290,7 +290,7 @@ describe("CLI doctor", () => {
     const fetch = async (input: string | URL | Request, init?: RequestInit) => {
       const request = new Request(input, init);
       const path = new URL(request.url).pathname;
-      if (path === "/api/v1/health") return ok({ status: "ok", version: "0.6.0" });
+      if (path === "/api/v1/health") return ok({ status: "ok", version: "0.6.1" });
       expect(request.headers.get("Authorization")).toBe(`Bearer ${token}`);
       if (path === "/api/v1/connections") return ok([]);
       if (path === "/api/v1/system/runner") {
@@ -305,7 +305,7 @@ describe("CLI doctor", () => {
     const result = JSON.parse(output.stdout());
     expect(result).toEqual({
       ok: true,
-      cliVersion: "0.6.0",
+      cliVersion: "0.6.1",
       apiUrl: "http://127.0.0.1:3000",
       checks: [
         {
@@ -318,13 +318,13 @@ describe("CLI doctor", () => {
           name: "health",
           status: "pass",
           message: "Server health is OK.",
-          details: { serverVersion: "0.6.0" },
+          details: { serverVersion: "0.6.1" },
         },
         {
           name: "version",
           status: "pass",
           message: "CLI and Server versions match.",
-          details: { serverVersion: "0.6.0" },
+          details: { serverVersion: "0.6.1" },
         },
         {
           name: "authentication",
@@ -371,7 +371,7 @@ describe("CLI doctor", () => {
         environment: {},
         fetch: async () => {
           requests += 1;
-          return ok({ status: "ok", version: "0.6.0" });
+          return ok({ status: "ok", version: "0.6.1" });
         },
       }),
     ).toBe(3);
@@ -395,12 +395,12 @@ describe("CLI doctor", () => {
         expected: 3,
         fetch: async (input: string | URL | Request) =>
           new URL(new Request(input).url).pathname === "/api/v1/health"
-            ? ok({ status: "ok", version: "0.6.0" })
+            ? ok({ status: "ok", version: "0.6.1" })
             : error(401, "unauthorized"),
       },
       {
         expected: 6,
-        fetch: async () => ok({ status: "unhealthy", version: "0.6.0" }, 503),
+        fetch: async () => ok({ status: "unhealthy", version: "0.6.1" }, 503),
       },
       {
         expected: 7,
@@ -464,7 +464,7 @@ describe("CLI doctor", () => {
     const output = harness();
     const fetch = async (input: string | URL | Request, init?: RequestInit) => {
       const path = new URL(new Request(input, init).url).pathname;
-      if (path === "/api/v1/health") return ok({ status: "ok", version: "0.6.0" });
+      if (path === "/api/v1/health") return ok({ status: "ok", version: "0.6.1" });
       if (path === "/api/v1/connections") return ok([]);
       if (path === "/api/v1/system/runner") return ok({ status: "online" });
       return ok([]);

@@ -9,13 +9,13 @@ on:
       tag:
         description: Existing v-prefixed tag to release
         required: true
-        default: v0.6.0
+        default: v0.6.1
 
 permissions:
   contents: read
 
 env:
-  VERSION: 0.6.0
+  VERSION: 0.6.1
   REGISTRY: ghcr.io
   RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
 

@@ -63,7 +63,7 @@ describe("AIWS agent skill", () => {
     const readme = await Bun.file(readmePath).text();
     expect(readme).toContain(`\${CODEX_HOME:-$HOME/.codex}/skills`);
     expect(readme).toContain("hermes skills install");
-    expect(readme).toContain("openclaw skills install /tmp/aiws-v0.6.0/skills/aiws-workflow");
-    expect(readme.match(/v0\.6\.0/gu)?.length ?? 0).toBeGreaterThanOrEqual(3);
+    expect(readme).toContain("openclaw skills install /tmp/aiws-v0.6.1/skills/aiws-workflow");
+    expect(readme.match(/v0\.6\.1/gu)?.length ?? 0).toBeGreaterThanOrEqual(3);
   });
 });

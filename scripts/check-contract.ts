@@ -13,7 +13,7 @@ if (!isRecord(document)) fail("OpenAPI snapshot must be an object.");
 if (document.openapi !== "3.1.0") fail("OpenAPI version must be 3.1.0.");
 if (!isRecord(document.info)) fail("OpenAPI info metadata is required.");
 if (document.info.title !== "AIWS API") fail("OpenAPI title must be AIWS API.");
-if (document.info.version !== "0.6.0") fail("OpenAPI info.version must be 0.6.0.");
+if (document.info.version !== "0.6.1") fail("OpenAPI info.version must be 0.6.1.");
 if (!isRecord(document.paths) || Object.keys(document.paths).length === 0) {
   fail("OpenAPI paths must not be empty.");
 }
