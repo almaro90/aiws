@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: AIWS API
-  version: 0.5.1
-  description: Contract for AIWS v0.5.1.
+  version: 0.6.0
+  description: Contract for AIWS v0.6.0.
   license:
     name: GNU Affero General Public License v3.0 only
     identifier: AGPL-3.0-only
@@ -224,6 +224,79 @@ paths:
         "303": { description: Connection registered; redirect to Web }
         "403": { $ref: "#/components/responses/Forbidden" }
         "422": { $ref: "#/components/responses/ValidationError" }
+  /connections/azure-devops/authorize:
+    get:
+      tags: [Connections]
+      operationId: authorizeAzureDevOps
+      responses:
+        "200":
+          description: Microsoft Entra authorization URL
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [url]
+                properties: { url: { type: string, format: uri } }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /connections/azure-devops/callback:
+    get:
+      tags: [Connections]
+      operationId: callbackAzureDevOps
+      security: []
+      parameters:
+        - { name: state, in: query, required: true, schema: { type: string } }
+        - { name: code, in: query, required: true, schema: { type: string } }
+      responses:
+        "303": { description: OAuth completed; redirect to organization selection }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+  /connections/azure-devops/authorizations/{authorizationId}/organizations:
+    get:
+      tags: [Connections]
+      operationId: listAzureDevOpsOrganizations
+      parameters: [{ $ref: "#/components/parameters/AzureAuthorizationId" }]
+      responses:
+        "200":
+          description: Organizations from the encrypted authorization snapshot
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AzureDevOpsOrganization" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /connections/azure-devops/authorizations/{authorizationId}/complete:
+    post:
+      tags: [Connections]
+      operationId: completeAzureDevOpsAuthorization
+      parameters: [{ $ref: "#/components/parameters/AzureAuthorizationId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CompleteAzureDevOpsAuthorizationRequest" }
+      responses:
+        "201":
+          description: Azure DevOps Connection registered or reauthorized
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Connection" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /connections/{connectionId}/reauthorize:
+    get:
+      tags: [Connections]
+      operationId: reauthorizeConnection
+      parameters: [{ $ref: "#/components/parameters/ConnectionId" }]
+      responses:
+        "200":
+          description: Provider authorization URL
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [url]
+                properties: { url: { type: string, format: uri } }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
   /connections/{connectionId}/repositories:
     get:
       tags: [Connections]
@@ -1365,6 +1438,11 @@ components:
       in: path
       required: true
       schema: { $ref: "#/components/schemas/ConnectionId" }
+    AzureAuthorizationId:
+      name: authorizationId
+      in: path
+      required: true
+      schema: { $ref: "#/components/schemas/AzureAuthorizationId" }
     AgentProfileId:
       name: agentProfileId
       in: path
@@ -1500,6 +1578,9 @@ components:
     ConnectionId:
       type: string
       pattern: '^con_[0-9A-HJKMNP-TV-Z]{26}$'
+    AzureAuthorizationId:
+      type: string
+      pattern: '^azr_[0-9A-HJKMNP-TV-Z]{26}$'
     AgentProfileId:
       type: string
       pattern: '^agp_[0-9A-HJKMNP-TV-Z]{26}$'
@@ -2059,19 +2140,58 @@ components:
         currentDelivery:
           oneOf: [{ $ref: "#/components/schemas/Delivery" }, { type: "null" }]
     Connection:
+      oneOf:
+        - $ref: "#/components/schemas/GitHubConnection"
+        - $ref: "#/components/schemas/AzureDevOpsConnection"
+      discriminator:
+        propertyName: provider
+        mapping:
+          github: "#/components/schemas/GitHubConnection"
+          azure_devops: "#/components/schemas/AzureDevOpsConnection"
+    ConnectionBase:
       type: object
-      additionalProperties: false
-      required: [id, provider, host, externalAccountId, displayName, installationId, status, createdAt, updatedAt]
+      required: [id, provider, host, externalAccountId, displayName, status, createdAt, updatedAt]
       properties:
         id: { $ref: "#/components/schemas/ConnectionId" }
-        provider: { type: string, const: github }
+        provider: { type: string, enum: [github, azure_devops] }
         host: { type: string, format: uri }
         externalAccountId: { type: string }
         displayName: { type: string }
-        installationId: { type: string }
-        status: { type: string, enum: [active, revoked] }
+        status: { type: string, enum: [active, reauthorization_required, revoked] }
         createdAt: { $ref: "#/components/schemas/Timestamp" }
         updatedAt: { $ref: "#/components/schemas/Timestamp" }
+    GitHubConnection:
+      unevaluatedProperties: false
+      allOf:
+        - $ref: "#/components/schemas/ConnectionBase"
+        - type: object
+          required: [installationId]
+          properties:
+            provider: { type: string, const: github }
+            installationId: { type: string }
+    AzureDevOpsConnection:
+      unevaluatedProperties: false
+      allOf:
+        - $ref: "#/components/schemas/ConnectionBase"
+        - type: object
+          required: [organizationId, organizationName]
+          properties:
+            provider: { type: string, const: azure_devops }
+            organizationId: { type: string }
+            organizationName: { type: string }
+    AzureDevOpsOrganization:
+      type: object
+      additionalProperties: false
+      required: [id, name]
+      properties:
+        id: { type: string }
+        name: { type: string }
+    CompleteAzureDevOpsAuthorizationRequest:
+      type: object
+      additionalProperties: false
+      required: [organizationId]
+      properties:
+        organizationId: { type: string, minLength: 1, maxLength: 255 }
     RemoteRepository:
       type: object
       additionalProperties: false
@@ -2092,13 +2212,13 @@ components:
       properties:
         name: { type: string, minLength: 1, maxLength: 255 }
         sha: { type: string }
-        protected: { type: boolean }
+        protected: { type: [boolean, "null"] }
     ImportRepositoryRequest:
       type: object
       additionalProperties: false
       required: [repositoryId, accountScope]
       properties:
-        repositoryId: { type: string, pattern: '^\d+$' }
+        repositoryId: { type: string, minLength: 1, maxLength: 255 }
         accountScope: { $ref: "#/components/schemas/AccountScope" }
         name: { type: string, minLength: 1, maxLength: 120 }
         description: { type: string, maxLength: 10000, default: "" }
@@ -2314,15 +2434,27 @@ components:
       properties:
         before: { $ref: "#/components/schemas/Timestamp" }
     GitCredentials:
-      type: object
-      additionalProperties: false
       description: Runner-only response. Never exposed to Web or CLI actors.
-      required: [cloneUrl, token, fullName, defaultBranch]
-      properties:
-        cloneUrl: { type: string, format: uri }
-        token: { type: string, writeOnly: true }
-        fullName: { type: string }
-        defaultBranch: { type: string }
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [kind, cloneUrl, username, password, fullName, defaultBranch]
+          properties:
+            kind: { type: string, const: basic }
+            cloneUrl: { type: string, format: uri }
+            username: { type: string, const: x-access-token }
+            password: { type: string, writeOnly: true }
+            fullName: { type: string }
+            defaultBranch: { type: string }
+        - type: object
+          additionalProperties: false
+          required: [kind, cloneUrl, token, fullName, defaultBranch]
+          properties:
+            kind: { type: string, const: bearer }
+            cloneUrl: { type: string, format: uri }
+            token: { type: string, writeOnly: true }
+            fullName: { type: string }
+            defaultBranch: { type: string }
     CreatePullRequestRequest:
       type: object
       additionalProperties: false

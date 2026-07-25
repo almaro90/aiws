@@ -131,6 +131,11 @@ export interface ConnectionStore {
     host: string,
     installationId: string,
   ): Promise<Connection | null>;
+  findByOrganization(
+    provider: "azure_devops",
+    host: string,
+    organizationId: string,
+  ): Promise<Connection | null>;
   insert(connection: Connection): Promise<void>;
   update(connection: Connection): Promise<void>;
 }

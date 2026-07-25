@@ -191,6 +191,17 @@ export const api = {
   connections: () => request<Connection[]>("/connections"),
   githubInstallUrl: () =>
     request<{ url: string }>("/connections/github/install?returnTo=/automation"),
+  azureAuthorizeUrl: () => request<{ url: string }>("/connections/azure-devops/authorize"),
+  azureOrganizations: (authorizationId: string) =>
+    request<{ id: string; name: string }[]>(
+      `/connections/azure-devops/authorizations/${authorizationId}/organizations`,
+    ),
+  completeAzureAuthorization: (authorizationId: string, organizationId: string) =>
+    request<Connection>(
+      `/connections/azure-devops/authorizations/${authorizationId}/complete`,
+      json("POST", { organizationId }),
+    ),
+  reauthorizeConnection: (id: string) => request<{ url: string }>(`/connections/${id}/reauthorize`),
   connectionRepositories: (id: string) =>
     request<RemoteRepository[]>(`/connections/${id}/repositories`),
   importRepository: (connectionId: string, input: unknown) =>

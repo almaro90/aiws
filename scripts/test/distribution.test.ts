@@ -43,6 +43,24 @@ describe("Hito 23 distribution contracts", () => {
     }
     expect(initializer).toContain("umask 077");
     expect(initializer).toContain("chmod 0600 .env aiws-api-token");
+    expect(initializer).toContain("github_count");
+    expect(initializer).toContain("azure_count");
+    expect(initializer).not.toContain("replace-with-github-app-id");
+    expect(initializer).not.toContain("replace-with-entra-application-client-id");
+  });
+
+  test("release bundle includes the four local operator guides", async () => {
+    const workflow = await read(".github/workflows/release.yml");
+    const bundleReadme = await read("distribution/README.md");
+    expect(workflow).toContain("cp -R docs/guides deployment/aiws-deployment/guides");
+    for (const guide of [
+      "installation.md",
+      "agents.md",
+      "managed-git-providers.md",
+      "projects-and-tasks.md",
+    ]) {
+      expect(bundleReadme).toContain(`guides/${guide}`);
+    }
   });
 
   test("release publishes the full platform and OCI matrix with provenance", async () => {

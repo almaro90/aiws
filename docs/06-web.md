@@ -363,7 +363,15 @@ tarjeta; el texto aclara que el horario solo afecta a Implementation.
 
 ## 20. Selector de rama de referencia
 
-La tarjeta del Project gestionado carga las ramas de GitHub y permite guardar la predeterminada.
+La tarjeta del Project gestionado carga las ramas del provider y permite guardar la predeterminada.
 El formulario de nueva Task repite el listado para el Project seleccionado y preselecciona su
 default. Loading, error y retry son explícitos y bloquean el submit gestionado si no existe una
 selección válida. El inspector de Task muestra el snapshot de Delivery.
+
+## 21. Azure DevOps
+
+Automation presenta botones separados para GitHub y Azure DevOps. Tras el callback Azure muestra
+un selector cerrado de organizaciones del snapshot temporal y completa la Connection elegida.
+Cada tarjeta usa metadata del provider, comparte importación/repositorios y ofrece Reautorizar
+cuando el estado es `reauthorization_required`. Los estados loading/error/expirado son explícitos y
+el selector conserva labels y navegación por teclado.

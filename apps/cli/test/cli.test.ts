@@ -40,7 +40,9 @@ describe("CLI global behavior", () => {
     const attachment = task?.commands.find((command) => command.name() === "attachment");
     const profile = program.commands.find((command) => command.name() === "agent-profile");
     const runner = program.commands.find((command) => command.name() === "runner");
+    const connection = program.commands.find((command) => command.name() === "connection");
     const config = program.commands.find((command) => command.name() === "config");
+    expect(program.commands.some((command) => command.name() === "doctor")).toBe(true);
     expect(config?.commands.map((command) => command.name())).toEqual([
       "path",
       "show",
@@ -94,6 +96,17 @@ describe("CLI global behavior", () => {
       "disable",
     ]);
     expect(runner?.commands.map((command) => command.name())).toEqual(["status"]);
+    expect(connection?.commands.map((command) => command.name())).toEqual([
+      "list",
+      "github-install",
+      "azure-authorize",
+      "azure-organizations",
+      "azure-complete",
+      "reauthorize",
+      "repos",
+      "import",
+      "revoke",
+    ]);
     const createProfile = profile?.commands.find((command) => command.name() === "create");
     expect(createProfile?.options.find((option) => option.long === "--model")?.mandatory).toBe(
       true,
@@ -271,7 +284,348 @@ describe("CLI global behavior", () => {
   });
 });
 
+describe("CLI doctor", () => {
+  test("emits a stable healthy JSON diagnosis without exposing secrets", async () => {
+    const token = "doctor-super-secret";
+    const fetch = async (input: string | URL | Request, init?: RequestInit) => {
+      const request = new Request(input, init);
+      const path = new URL(request.url).pathname;
+      if (path === "/api/v1/health") return ok({ status: "ok", version: "0.6.0" });
+      expect(request.headers.get("Authorization")).toBe(`Bearer ${token}`);
+      if (path === "/api/v1/connections") return ok([]);
+      if (path === "/api/v1/system/runner") {
+        return ok({ status: "online", lastSeenAt: "2026-07-25T10:00:00.000Z" });
+      }
+      return ok([{ id: "agt_1", enabled: true, credentialReference: "SECRET_REFERENCE" }]);
+    };
+    const output = harness();
+    expect(await runCli(argv("--json", "--token", token, "doctor"), { io: output.io, fetch })).toBe(
+      0,
+    );
+    const result = JSON.parse(output.stdout());
+    expect(result).toEqual({
+      ok: true,
+      cliVersion: "0.6.0",
+      apiUrl: "http://127.0.0.1:3000",
+      checks: [
+        {
+          name: "configuration",
+          status: "pass",
+          message: "Effective configuration is valid.",
+          details: { tokenConfigured: true },
+        },
+        {
+          name: "health",
+          status: "pass",
+          message: "Server health is OK.",
+          details: { serverVersion: "0.6.0" },
+        },
+        {
+          name: "version",
+          status: "pass",
+          message: "CLI and Server versions match.",
+          details: { serverVersion: "0.6.0" },
+        },
+        {
+          name: "authentication",
+          status: "pass",
+          message: "Bearer authentication succeeded.",
+          details: {},
+        },
+        {
+          name: "runner",
+          status: "pass",
+          message: "Runner is online.",
+          details: { status: "online" },
+        },
+        {
+          name: "connections",
+          status: "pass",
+          message: "Connections do not require reauthorization.",
+          details: {
+            total: 0,
+            byProvider: { github: 0, azure_devops: 0 },
+            byStatus: { active: 0, reauthorization_required: 0, revoked: 0 },
+            reauthorizationRequired: 0,
+          },
+        },
+        {
+          name: "agent_profiles",
+          status: "pass",
+          message: "All Agent Profiles are enabled.",
+          details: { total: 1, enabled: 1, disabled: 0 },
+        },
+      ],
+    });
+    expect(output.stdout()).not.toContain(token);
+    expect(output.stdout()).not.toContain("SECRET_REFERENCE");
+    expect(output.stderr()).toBe("");
+  });
+
+  test("keeps all checks and exits 3 when the token is absent", async () => {
+    const output = harness();
+    let requests = 0;
+    expect(
+      await runCli(argv("--json", "doctor"), {
+        io: output.io,
+        environment: {},
+        fetch: async () => {
+          requests += 1;
+          return ok({ status: "ok", version: "0.6.0" });
+        },
+      }),
+    ).toBe(3);
+    const result = JSON.parse(output.stdout());
+    expect(requests).toBe(1);
+    expect(result.checks.map((check: { status: string }) => check.status)).toEqual([
+      "fail",
+      "pass",
+      "pass",
+      "skipped",
+      "skipped",
+      "skipped",
+      "skipped",
+    ]);
+    expect(output.stderr()).toBe("");
+  });
+
+  test("maps invalid auth, unhealthy responses, and network failures", async () => {
+    const cases = [
+      {
+        expected: 3,
+        fetch: async (input: string | URL | Request) =>
+          new URL(new Request(input).url).pathname === "/api/v1/health"
+            ? ok({ status: "ok", version: "0.6.0" })
+            : error(401, "unauthorized"),
+      },
+      {
+        expected: 6,
+        fetch: async () => ok({ status: "unhealthy", version: "0.6.0" }, 503),
+      },
+      {
+        expected: 7,
+        fetch: async () => {
+          throw new Error("network failed with should-not-leak");
+        },
+      },
+    ];
+    for (const item of cases) {
+      const output = harness();
+      expect(
+        await runCli(argv("--json", "--token", "should-not-leak", "doctor"), {
+          io: output.io,
+          fetch: item.fetch,
+        }),
+      ).toBe(item.expected);
+      const result = JSON.parse(output.stdout());
+      expect(result.checks).toHaveLength(7);
+      expect(output.stdout()).not.toContain("should-not-leak");
+      expect(output.stderr()).toBe("");
+    }
+  });
+
+  test("treats version, runner, reauthorization, and disabled profiles as warnings", async () => {
+    for (const runnerStatus of ["offline", "unknown"]) {
+      const output = harness();
+      const fetch = async (input: string | URL | Request, init?: RequestInit) => {
+        const path = new URL(new Request(input, init).url).pathname;
+        if (path === "/api/v1/health") return ok({ status: "ok", version: "0.5.1" });
+        if (path === "/api/v1/connections") {
+          return ok([
+            {
+              provider: "azure_devops",
+              status: "reauthorization_required",
+              refreshToken: "never-output",
+            },
+          ]);
+        }
+        if (path === "/api/v1/system/runner") return ok({ status: runnerStatus });
+        return ok([{ enabled: false, credentialReference: "NEVER_OUTPUT" }]);
+      };
+      expect(
+        await runCli(argv("--json", "--token", "token", "doctor"), {
+          io: output.io,
+          fetch,
+        }),
+      ).toBe(0);
+      const result = JSON.parse(output.stdout());
+      expect(result.ok).toBe(true);
+      expect(
+        result.checks
+          .filter((check: { status: string }) => check.status === "warning")
+          .map((check: { name: string }) => check.name),
+      ).toEqual(["version", "runner", "connections", "agent_profiles"]);
+      expect(output.stdout()).not.toContain("never-output");
+      expect(output.stdout()).not.toContain("NEVER_OUTPUT");
+    }
+  });
+
+  test("renders the same safe diagnosis in human mode", async () => {
+    const output = harness();
+    const fetch = async (input: string | URL | Request, init?: RequestInit) => {
+      const path = new URL(new Request(input, init).url).pathname;
+      if (path === "/api/v1/health") return ok({ status: "ok", version: "0.6.0" });
+      if (path === "/api/v1/connections") return ok([]);
+      if (path === "/api/v1/system/runner") return ok({ status: "online" });
+      return ok([]);
+    };
+    expect(await runCli(argv("--token", "human-secret", "doctor"), { io: output.io, fetch })).toBe(
+      0,
+    );
+    expect(output.stdout()).toContain("[PASS] health");
+    expect(output.stdout()).toContain("[WARNING] agent_profiles");
+    expect(output.stdout()).not.toContain("human-secret");
+    expect(output.stderr()).toBe("");
+  });
+});
+
 describe("CLI inputs and commands", () => {
+  test("lists and completes Azure authorizations with full IDs and exact requests", async () => {
+    const requests: Array<{ method: string; path: string; body?: unknown }> = [];
+    const fetch = async (input: string | URL | Request, init?: RequestInit) => {
+      const request = new Request(input, init);
+      requests.push({
+        method: request.method,
+        path: new URL(request.url).pathname,
+        ...(request.method === "POST" ? { body: await request.clone().json() } : {}),
+      });
+      return request.method === "GET"
+        ? ok([{ id: "org-full-id", name: "Work" }])
+        : ok({ id: "con_full_id", provider: "azure_devops" }, 201);
+    };
+
+    for (const command of [
+      ["connection", "azure-organizations", "azr_FULL_AUTHORIZATION_ID"],
+      [
+        "connection",
+        "azure-complete",
+        "azr_FULL_AUTHORIZATION_ID",
+        "--organization-id",
+        "org-full-id",
+      ],
+    ]) {
+      const output = harness();
+      expect(
+        await runCli(argv("--json", "--token", "token", ...command), { io: output.io, fetch }),
+      ).toBe(0);
+    }
+    expect(requests).toEqual([
+      {
+        method: "GET",
+        path: "/api/v1/connections/azure-devops/authorizations/azr_FULL_AUTHORIZATION_ID/organizations",
+      },
+      {
+        method: "POST",
+        path: "/api/v1/connections/azure-devops/authorizations/azr_FULL_AUTHORIZATION_ID/complete",
+        body: { organizationId: "org-full-id" },
+      },
+    ]);
+  });
+
+  test("updates managed Project settings in one exact PATCH and clears nullable fields", async () => {
+    const bodies: unknown[] = [];
+    const fetch = async (input: string | URL | Request, init?: RequestInit) => {
+      const request = new Request(input, init);
+      bodies.push(await request.json());
+      return ok({ id: "prj_1" });
+    };
+    const combined = harness();
+    expect(
+      await runCli(
+        argv(
+          "--json",
+          "--token",
+          "token",
+          "project",
+          "update",
+          "prj_1",
+          "--curation-agent-profile",
+          "agt_curator",
+          "--implementation-agent-profile",
+          "agt_implementer",
+          "--enable-automation",
+          "--schedule-cron",
+          "0 9 * * 1-5",
+          "--schedule-timezone",
+          "Europe/Madrid",
+          "--max-concurrency",
+          "16",
+        ),
+        { io: combined.io, fetch },
+      ),
+    ).toBe(0);
+    const cleared = harness();
+    expect(
+      await runCli(
+        argv(
+          "--json",
+          "--token",
+          "token",
+          "project",
+          "update",
+          "prj_1",
+          "--clear-curation-agent-profile",
+          "--clear-implementation-agent-profile",
+          "--disable-automation",
+          "--clear-schedule",
+        ),
+        { io: cleared.io, fetch },
+      ),
+    ).toBe(0);
+    expect(bodies).toEqual([
+      {
+        scheduleTimezone: "Europe/Madrid",
+        maxConcurrency: 16,
+        curationAgentProfileId: "agt_curator",
+        implementationAgentProfileId: "agt_implementer",
+        automationEnabled: true,
+        scheduleCron: "0 9 * * 1-5",
+      },
+      {
+        curationAgentProfileId: null,
+        implementationAgentProfileId: null,
+        automationEnabled: false,
+        scheduleCron: null,
+      },
+    ]);
+  });
+
+  test("rejects managed Project conflicts and concurrency limits locally", async () => {
+    for (const flags of [
+      ["--enable-automation", "--disable-automation"],
+      ["--schedule-cron", "* * * * *", "--clear-schedule"],
+      ["--curation-agent-profile", "agt_1", "--clear-curation-agent-profile"],
+      ["--implementation-agent-profile", "agt_1", "--clear-implementation-agent-profile"],
+      ["--max-concurrency", "0"],
+      ["--max-concurrency", "17"],
+    ]) {
+      const output = harness();
+      let called = false;
+      expect(
+        await runCli(argv("--json", "--token", "token", "project", "update", "prj_1", ...flags), {
+          io: output.io,
+          fetch: async () => {
+            called = true;
+            return ok({});
+          },
+        }),
+      ).toBe(2);
+      expect(called).toBe(false);
+      expect(JSON.parse(output.stderr()).error.code).toBe("invalid_input");
+    }
+  });
+
+  test("preserves Server validation errors for invalid managed Project settings", async () => {
+    const output = harness();
+    expect(
+      await runCli(
+        argv("--json", "--token", "token", "project", "update", "prj_1", "--enable-automation"),
+        { io: output.io, fetch: async () => error(422, "validation_error") },
+      ),
+    ).toBe(2);
+    expect(JSON.parse(output.stderr()).error.code).toBe("validation_error");
+  });
+
   test("reports runner status and resumes paused automation with optimistic concurrency", async () => {
     const requests: Array<{ method: string; path: string; ifMatch: string | null }> = [];
     const fetch = async (input: string | URL | Request, init?: RequestInit) => {

@@ -52,18 +52,36 @@ export function AutomationPage() {
     mutationFn: api.githubInstallUrl,
     onSuccess: ({ url }) => window.location.assign(url),
   });
+  const connectAzure = useMutation({
+    mutationFn: api.azureAuthorizeUrl,
+    onSuccess: ({ url }) => window.location.assign(url),
+  });
+  const azureAuthorizationId =
+    typeof window === "undefined"
+      ? null
+      : new URLSearchParams(window.location.search).get("azureAuthorizationId");
   return (
     <>
       <PageHeader
         title="Automatización"
-        description="Conecta GitHub, importa repositorios gestionados y configura los perfiles Codex usados para curation e implementación."
+        description="Conecta GitHub o Azure DevOps Services, importa repositorios gestionados y configura los perfiles Codex usados para curation e implementación."
         actions={
-          <Button disabled={connect.isPending} onClick={() => connect.mutate()}>
-            Conectar GitHub
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button disabled={connect.isPending} onClick={() => connect.mutate()}>
+              Conectar GitHub
+            </Button>
+            <Button
+              variant="outline"
+              disabled={connectAzure.isPending}
+              onClick={() => connectAzure.mutate()}
+            >
+              Conectar Azure DevOps
+            </Button>
+          </div>
         }
       />
       {connect.isError ? <ErrorNotice error={connect.error} /> : null}
+      {connectAzure.isError ? <ErrorNotice error={connectAzure.error} /> : null}
       <section className="grid gap-3" aria-labelledby={infrastructureId}>
         <h2 id={infrastructureId} className="text-xl font-semibold">
           Infraestructura
@@ -74,6 +92,9 @@ export function AutomationPage() {
         <h2 id={repositoriesId} className="text-xl font-semibold">
           Conexiones y repositorios gestionados
         </h2>
+        {azureAuthorizationId ? (
+          <AzureOrganizationSelector authorizationId={azureAuthorizationId} />
+        ) : null}
         {connections.isError ? (
           <ErrorNotice error={connections.error} retry={() => void connections.refetch()} />
         ) : connections.data === undefined ? (
@@ -114,6 +135,65 @@ export function AutomationPage() {
         )}
       </section>
     </>
+  );
+}
+
+function AzureOrganizationSelector({ authorizationId }: { readonly authorizationId: string }) {
+  const organizationFieldId = useId();
+  const client = useQueryClient();
+  const [organizationId, setOrganizationId] = useState("");
+  const organizations = useQuery({
+    queryKey: ["azure-organizations", authorizationId],
+    queryFn: () => api.azureOrganizations(authorizationId),
+  });
+  const complete = useMutation({
+    mutationFn: () => api.completeAzureAuthorization(authorizationId, organizationId),
+    onSuccess: async () => {
+      await client.invalidateQueries({ queryKey: ["connections"] });
+      const url = new URL(window.location.href);
+      url.searchParams.delete("azureAuthorizationId");
+      window.history.replaceState(null, "", url);
+      toast.success("Organización de Azure DevOps conectada");
+    },
+  });
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Seleccionar organización de Azure DevOps</CardTitle>
+      </CardHeader>
+      <CardContent className="grid gap-3">
+        {organizations.isError ? (
+          <ErrorNotice error={organizations.error} retry={() => void organizations.refetch()} />
+        ) : organizations.data === undefined ? (
+          <Loading />
+        ) : (
+          <>
+            <Field>
+              <FieldLabel htmlFor={organizationFieldId}>Organización</FieldLabel>
+              <Combobox
+                id={organizationFieldId}
+                options={organizations.data.map((organization) => ({
+                  value: organization.id,
+                  label: organization.name,
+                }))}
+                value={organizationId}
+                placeholder="Seleccionar organización…"
+                searchPlaceholder="Buscar organización…"
+                onValueChange={setOrganizationId}
+              />
+            </Field>
+            <Button
+              className="justify-self-start"
+              disabled={!organizationId || complete.isPending}
+              onClick={() => complete.mutate()}
+            >
+              Completar conexión
+            </Button>
+          </>
+        )}
+        {complete.isError ? <ErrorNotice error={complete.error} /> : null}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -176,6 +256,10 @@ function ConnectionCard({ connection }: { readonly connection: Connection }) {
       toast.success("Connection revocada");
     },
   });
+  const reauthorize = useMutation({
+    mutationFn: () => api.reauthorizeConnection(connection.id),
+    onSuccess: ({ url }) => window.location.assign(url),
+  });
   return (
     <Card>
       <CardHeader>
@@ -186,7 +270,11 @@ function ConnectionCard({ connection }: { readonly connection: Connection }) {
       </CardHeader>
       <CardContent className="grid gap-3">
         <p className="text-sm text-muted-foreground">
-          GitHub · instalación {connection.installationId}
+          {connection.provider === "github" && "installationId" in connection
+            ? `GitHub · instalación ${connection.installationId}`
+            : connection.provider === "azure_devops" && "organizationName" in connection
+              ? `Azure DevOps · organización ${connection.organizationName}`
+              : "Proveedor gestionado"}
         </p>
         <div className="flex gap-2">
           <Button
@@ -205,6 +293,15 @@ function ConnectionCard({ connection }: { readonly connection: Connection }) {
             disabled={connection.status !== "active" || revoke.isPending}
             onConfirm={() => revoke.mutate()}
           />
+          {connection.status === "reauthorization_required" ? (
+            <Button
+              variant="outline"
+              disabled={reauthorize.isPending}
+              onClick={() => reauthorize.mutate()}
+            >
+              Reautorizar
+            </Button>
+          ) : null}
         </div>
         {repos.isError ? (
           <ErrorNotice error={repos.error} />
@@ -215,7 +312,7 @@ function ConnectionCard({ connection }: { readonly connection: Connection }) {
             <div className="grid gap-3">
               <Field>
                 <FieldLabel htmlFor={`repository-${connection.id}`}>
-                  Repositorio de GitHub
+                  Repositorio gestionado
                 </FieldLabel>
                 <Combobox
                   id={`repository-${connection.id}`}
@@ -246,6 +343,7 @@ function ConnectionCard({ connection }: { readonly connection: Connection }) {
           )
         ) : null}
         {revoke.isError ? <ErrorNotice error={revoke.error} /> : null}
+        {reauthorize.isError ? <ErrorNotice error={reauthorize.error} /> : null}
       </CardContent>
     </Card>
   );

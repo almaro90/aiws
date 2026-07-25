@@ -1,22 +1,13 @@
 import type { Connection } from "@aiws/core";
 import { createSign, createHmac, timingSafeEqual } from "node:crypto";
-
-export interface RemoteRepository {
-  readonly id: string;
-  readonly fullName: string;
-  readonly name: string;
-  readonly description: string;
-  readonly webUrl: string;
-  readonly cloneUrl: string;
-  readonly defaultBranch: string;
-  readonly private: boolean;
-}
-
-export interface RemoteBranch {
-  readonly name: string;
-  readonly sha: string;
-  readonly protected: boolean;
-}
+import type {
+  ManagedGitCredentials,
+  ManagedGitProvider,
+  PullRequestInput,
+  RemoteBranch,
+  RemoteRepository,
+} from "./managed-git-provider.ts";
+export type { RemoteBranch, RemoteRepository } from "./managed-git-provider.ts";
 
 export interface GitHubAppConfig {
   readonly appId: string;
@@ -29,7 +20,8 @@ export interface GitHubAppConfig {
 
 type FetchImplementation = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
-export class GitHubAppGateway {
+export class GitHubAppGateway implements ManagedGitProvider {
+  readonly provider = "github" as const;
   private readonly apiBaseUrl: string;
   private readonly webBaseUrl: string;
   private readonly request: FetchImplementation;
@@ -61,7 +53,7 @@ export class GitHubAppGateway {
   }
 
   async listRepositories(connection: Connection): Promise<readonly RemoteRepository[]> {
-    const token = await this.installationToken(connection.installationId);
+    const token = await this.installationToken(githubConnection(connection).installationId);
     const repositories: RemoteRepository[] = [];
     for (let page = 1; page <= 100; page += 1) {
       const response = await this.installationRequest(
@@ -79,14 +71,14 @@ export class GitHubAppGateway {
   }
 
   async getRepository(connection: Connection, repositoryId: string): Promise<RemoteRepository> {
-    const token = await this.installationToken(connection.installationId);
+    const token = await this.installationToken(githubConnection(connection).installationId);
     return remoteRepository(
       await this.installationRequest(token, `/repositories/${encodeURIComponent(repositoryId)}`),
     );
   }
 
   async listBranches(connection: Connection, repository: string): Promise<readonly RemoteBranch[]> {
-    const token = await this.installationToken(connection.installationId);
+    const token = await this.installationToken(githubConnection(connection).installationId);
     const branches: RemoteBranch[] = [];
     for (let page = 1; page <= 100; page += 1) {
       const rows = array(
@@ -103,7 +95,22 @@ export class GitHubAppGateway {
   }
 
   async accessToken(connection: Connection): Promise<string> {
-    return this.installationToken(connection.installationId);
+    return this.installationToken(githubConnection(connection).installationId);
+  }
+
+  async gitCredentials(
+    connection: Connection,
+    repositoryId: string,
+  ): Promise<ManagedGitCredentials> {
+    const repository = await this.getRepository(connection, repositoryId);
+    return {
+      kind: "basic",
+      cloneUrl: repository.cloneUrl,
+      username: "x-access-token",
+      password: await this.accessToken(connection),
+      fullName: repository.fullName,
+      defaultBranch: repository.defaultBranch,
+    };
   }
 
   async createPullRequest(
@@ -117,7 +124,7 @@ export class GitHubAppGateway {
       readonly draft: boolean;
     },
   ): Promise<string> {
-    const token = await this.installationToken(connection.installationId);
+    const token = await this.installationToken(githubConnection(connection).installationId);
     const response = record(
       await this.installationRequest(token, `/repos/${repository}/pulls`, {
         method: "POST",
@@ -131,20 +138,23 @@ export class GitHubAppGateway {
   async publishPullRequest(
     connection: Connection,
     repository: string,
-    input: {
-      readonly title: string;
-      readonly body: string;
-      readonly head: string;
-      readonly base: string;
-      readonly draft: boolean;
-    },
-    existingUrl: string | null,
+    repositoryIdOrInput: string | PullRequestInput,
+    inputOrExistingUrl: PullRequestInput | string | null,
+    maybeExistingUrl?: string | null,
   ): Promise<string> {
+    const input =
+      typeof repositoryIdOrInput === "string"
+        ? (inputOrExistingUrl as PullRequestInput)
+        : repositoryIdOrInput;
+    const existingUrl =
+      typeof repositoryIdOrInput === "string"
+        ? (maybeExistingUrl ?? null)
+        : (inputOrExistingUrl as string | null);
     let pullNumber = existingUrl?.match(/\/pull\/(\d+)\/?$/u)?.[1];
     if (pullNumber === undefined) {
       const owner = repository.split("/")[0];
       if (owner !== undefined) {
-        const token = await this.installationToken(connection.installationId);
+        const token = await this.installationToken(githubConnection(connection).installationId);
         const response = await this.installationRequest(
           token,
           `/repos/${repository}/pulls?state=open&head=${encodeURIComponent(`${owner}:${input.head}`)}`,
@@ -158,7 +168,7 @@ export class GitHubAppGateway {
       }
     }
     if (pullNumber !== undefined) {
-      const token = await this.installationToken(connection.installationId);
+      const token = await this.installationToken(githubConnection(connection).installationId);
       const existing = record(
         await this.installationRequest(token, `/repos/${repository}/pulls/${pullNumber}`),
         "GitHub pull request",
@@ -223,6 +233,13 @@ export class GitHubAppGateway {
     signer.update(unsigned);
     return `${unsigned}.${signer.sign(this.config.privateKey).toString("base64url")}`;
   }
+}
+
+function githubConnection(connection: Connection): Extract<Connection, { provider: "github" }> {
+  if (connection.provider !== "github") {
+    throw new Error("GitHub provider received a non-GitHub Connection.");
+  }
+  return connection;
 }
 
 export function createOauthState(secret: string, returnTo: string, now = Date.now()): string {

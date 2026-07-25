@@ -128,6 +128,18 @@ describe("SQLite migration contract", () => {
     expect(packaged.trimEnd()).toBe(contract.trimEnd());
   });
 
+  test("keeps the Azure DevOps provider migration identical to the SQL contract", () => {
+    const contract = readFileSync(
+      join(import.meta.dir, "../../../docs/database/0010_azure_devops_provider.sql"),
+      "utf8",
+    );
+    const packaged = readFileSync(
+      join(import.meta.dir, "../migrations/0010_azure_devops_provider.sql"),
+      "utf8",
+    );
+    expect(packaged.trimEnd()).toBe(contract.trimEnd());
+  });
+
   test("migrates an empty database once and configures every required pragma", () => {
     const directory = temporaryDirectory();
     const path = join(directory, "aiws.sqlite");
@@ -149,7 +161,7 @@ describe("SQLite migration contract", () => {
       database
         .query<{ count: number }, []>("SELECT count(*) AS count FROM schema_migrations")
         .get(),
-    ).toEqual({ count: 9 });
+    ).toEqual({ count: 10 });
     database
       .query<void, [string, string, string, string, string]>(
         `INSERT INTO agent_profiles(
@@ -177,7 +189,7 @@ describe("SQLite migration contract", () => {
       reopened
         .query<{ count: number }, []>("SELECT count(*) AS count FROM schema_migrations")
         .get(),
-    ).toEqual({ count: 9 });
+    ).toEqual({ count: 10 });
     expect(
       reopened.query<{ applied_at: string }, []>("SELECT applied_at FROM schema_migrations").get(),
     ).toEqual({ applied_at: "2026-07-21T10:00:00.000Z" });
@@ -206,7 +218,7 @@ describe("SQLite migration contract", () => {
       migrated
         .query<{ count: number }, []>("SELECT count(*) AS count FROM schema_migrations")
         .get(),
-    ).toEqual({ count: 9 });
+    ).toEqual({ count: 10 });
     expect(
       migrated
         .query<{ enabled: number; base_url: string; topic: string }, []>(
@@ -366,6 +378,32 @@ describe("SQLite migration contract", () => {
     expect(
       migrated.query<{ base_branch: string }, []>("SELECT base_branch FROM deliveries").get(),
     ).toEqual({ base_branch: "release/legacy" });
+    expect(
+      migrated
+        .query<
+          {
+            provider: string;
+            installation_id: string | null;
+            organization_id: string | null;
+          },
+          [string]
+        >(
+          `SELECT provider, installation_id, organization_id
+           FROM connections WHERE id = ?`,
+        )
+        .get(connectionId),
+    ).toEqual({
+      provider: "github",
+      installation_id: "42",
+      organization_id: null,
+    });
+    expect(
+      migrated
+        .query<{ connection_id: string | null }, [string]>(
+          "SELECT connection_id FROM projects WHERE id = ?",
+        )
+        .get(projectId),
+    ).toEqual({ connection_id: connectionId });
     migrated.close();
   });
 
@@ -551,6 +589,9 @@ describe("SQLite migration contract", () => {
     expect(names).toEqual([
       "idx_attachments_cycle_created",
       "idx_attachments_task_created",
+      "idx_azure_oauth_authorizations_expires",
+      "idx_connections_azure_organization",
+      "idx_connections_github_installation",
       "idx_deliveries_task_created",
       "idx_notification_outbox_due",
       "idx_projects_active_updated",

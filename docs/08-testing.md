@@ -251,6 +251,14 @@ Con al menos 250 filas:
 - [ ] Delete attachment json exige yes.
 - [ ] Create con attachment fallido devuelve exit 9.
 - [ ] Token se redacta en errores.
+- [ ] Azure lista organizaciones y completa por IDs completos con body exacto.
+- [ ] Project update combina perfiles/automatización y limpia perfiles/schedule.
+- [ ] Pares set/clear y enable/disable fallan exit 2; concurrencia acepta solo 1..16.
+- [ ] `doctor` sano conserva orden y JSON estable.
+- [ ] `doctor` cubre token ausente, auth inválida, unhealthy, respuesta inválida, red y timeout.
+- [ ] Version mismatch, runner offline/unknown y reautorización son warnings con exit 0.
+- [ ] Perfiles ausentes/deshabilitados se resumen sin exponer referencias ni secretos.
+- [ ] `doctor --json` fallido escribe stdout estructurado y deja stderr vacío.
 
 ## 10. Web verification
 
@@ -407,3 +415,14 @@ Done:
 
 Las dos últimas pruebas necesitan una GitHub Release y hosts Linux amd64/arm64; el workflow de
 release es su gate operativo y no se simulan con privilegios dentro de la suite unitaria.
+
+## 22. Azure DevOps gestionado
+
+- [ ] Migración desde `0009`, unión discriminada y unicidad por organización.
+- [ ] PKCE/state de un solo uso, expiración, selección inválida y organizaciones múltiples.
+- [ ] AES-256-GCM sin plaintext, refresh rotado, exclusión concurrente e `invalid_grant`.
+- [ ] Repositorios UUID, `project/repository`, ramas normalizadas y `protected=null`.
+- [ ] PR draft nuevo, actualización de activo, lookup por refs y descripción de 4.000 caracteres.
+- [ ] Registry ejecuta las mismas operaciones GitHub/Azure y falla cerrado si no está configurado.
+- [ ] Runner prueba basic y bearer sin secretos en URL, argv, error o logs.
+- [ ] API, CLI, Web, OpenAPI, build y Playwright usan upstreams simulados, nunca red Azure real.

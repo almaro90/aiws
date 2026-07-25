@@ -72,13 +72,57 @@ export class ConnectionUseCases {
     });
   }
 
+  registerAzureDevOps(input: {
+    readonly host: string;
+    readonly externalAccountId: string;
+    readonly displayName: string;
+    readonly organizationId: string;
+    readonly organizationName: string;
+  }): Promise<Connection> {
+    return this.unitOfWork.execute(async (stores) => {
+      const existing = await stores.connections.findByOrganization(
+        "azure_devops",
+        input.host,
+        input.organizationId,
+      );
+      const now = timestamp(this.dependencies.clock);
+      if (existing !== null) {
+        const connection: Connection = {
+          ...existing,
+          ...input,
+          provider: "azure_devops",
+          status: "active",
+          updatedAt: now,
+        };
+        await stores.connections.update(connection);
+        return connection;
+      }
+      const connection = createConnection({
+        id: this.dependencies.ids.connectionId(),
+        provider: "azure_devops",
+        ...input,
+        now,
+      });
+      await stores.connections.insert(connection);
+      return connection;
+    });
+  }
+
+  requireReauthorization(id: ConnectionId): Promise<Connection> {
+    return this.updateStatus(id, "reauthorization_required");
+  }
+
   revoke(id: ConnectionId): Promise<Connection> {
+    return this.updateStatus(id, "revoked");
+  }
+
+  private updateStatus(id: ConnectionId, status: Connection["status"]): Promise<Connection> {
     return this.unitOfWork.execute(async (stores) => {
       const current = await stores.connections.getById(id);
       if (current === null) throw new NotFoundError("Connection", id);
       const connection = {
         ...current,
-        status: "revoked" as const,
+        status,
         updatedAt: timestamp(this.dependencies.clock),
       };
       await stores.connections.update(connection);

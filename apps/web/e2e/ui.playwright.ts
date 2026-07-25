@@ -279,8 +279,8 @@ async function mockApi(
             ];
     if (path === "/health") {
       return options.healthOffline
-        ? route.fulfill({ status: 503, json: { status: "unhealthy", version: "0.5.1" } })
-        : route.fulfill({ json: { status: "ok", version: "0.5.1" } });
+        ? route.fulfill({ status: 503, json: { status: "unhealthy", version: "0.6.0" } })
+        : route.fulfill({ json: { status: "ok", version: "0.6.0" } });
     }
     if (path === "/system/runner") {
       return route.fulfill({
@@ -1165,6 +1165,8 @@ test("uses normalized terminology across Projects, Automation and Runs", async (
 
   await page.goto("/automation");
   await expect(page.getByRole("heading", { name: "Automatización", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Conectar GitHub" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Conectar Azure DevOps" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Conexiones" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Perfiles de agente" })).toBeVisible();
   await expect(page.getByLabel("Modelo")).toBeVisible();
@@ -1508,8 +1510,8 @@ test("keeps Task snapshots stale and refreshes active queries after reconnection
   });
   await page.route("**/api/v1/health", (route) =>
     healthy
-      ? route.fulfill({ json: { status: "ok", version: "0.5.1" } })
-      : route.fulfill({ status: 503, json: { status: "unhealthy", version: "0.5.1" } }),
+      ? route.fulfill({ json: { status: "ok", version: "0.6.0" } })
+      : route.fulfill({ status: 503, json: { status: "unhealthy", version: "0.6.0" } }),
   );
 
   await page.goto(`/tasks/${taskId}`);

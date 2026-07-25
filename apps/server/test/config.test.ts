@@ -72,6 +72,9 @@ describe("loadConfig", () => {
       AIWS_GRACEFUL_SHUTDOWN_MS: "5000",
       AIWS_TRUST_PROXY: "true",
       AIWS_NOTIFICATION_ENCRYPTION_KEY: Buffer.alloc(32, 4).toString("base64"),
+      AIWS_AZURE_DEVOPS_CLIENT_ID: "client-id",
+      AIWS_AZURE_DEVOPS_CLIENT_SECRET: "client-secret",
+      AIWS_CONNECTION_ENCRYPTION_KEY: Buffer.alloc(32, 5).toString("base64"),
     });
 
     expect(config.allowedRepoRoots).toEqual(["/one", "/two"]);
@@ -86,6 +89,8 @@ describe("loadConfig", () => {
     expect(config.gracefulShutdownMs).toBe(5000);
     expect(config.trustProxy).toBe(true);
     expect(config.notificationEncryptionKey).toBe(Buffer.alloc(32, 4).toString("base64"));
+    expect(config.azureDevOpsClientId).toBe("client-id");
+    expect(config.connectionEncryptionKey).toBe(Buffer.alloc(32, 5).toString("base64"));
   });
 
   test.each([
@@ -116,6 +121,7 @@ describe("loadConfig", () => {
     ["AIWS_SESSION_SECRET", "not base64"],
     ["AIWS_API_TOKEN_HASH", `sha256:${"A".repeat(64)}`],
     ["AIWS_NOTIFICATION_ENCRYPTION_KEY", Buffer.alloc(31).toString("base64")],
+    ["AIWS_CONNECTION_ENCRYPTION_KEY", Buffer.alloc(31).toString("base64")],
   ])("validates optional format for %s", (variable, value) => {
     expect(() => loadConfig({ AIWS_ENV: "test", [variable]: value })).toThrow(variable);
   });
@@ -127,11 +133,25 @@ describe("loadConfig", () => {
     ).toThrow("AIWS_PUBLIC_URL");
   });
 
+  test("requires Azure client credentials and Connection encryption key atomically", () => {
+    expect(() => loadConfig({ AIWS_ENV: "test", AIWS_AZURE_DEVOPS_CLIENT_ID: "client" })).toThrow(
+      "AIWS_AZURE_DEVOPS_CLIENT_ID",
+    );
+    expect(() =>
+      loadConfig({
+        AIWS_ENV: "test",
+        AIWS_AZURE_DEVOPS_CLIENT_ID: "client",
+        AIWS_AZURE_DEVOPS_CLIENT_SECRET: "secret",
+      }),
+    ).toThrow("AIWS_AZURE_DEVOPS_CLIENT_ID");
+  });
+
   test.each([
     "AIWS_ADMIN_PASSWORD_HASH",
     "AIWS_SESSION_SECRET",
     "AIWS_API_TOKEN_HASH",
     "AIWS_NOTIFICATION_ENCRYPTION_KEY",
+    "AIWS_CONNECTION_ENCRYPTION_KEY",
   ])("never exposes the received secret for %s", (variable) => {
     const received = `received-secret-${variable}`;
     let thrown: unknown;

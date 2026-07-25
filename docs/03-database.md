@@ -233,3 +233,15 @@ histórico capturado al crear cada attempt.
 backfill recorre Delivery → Task → Project y copia `projects.default_branch`; las Deliveries de
 Projects locales permanecen null. Las nuevas Tasks gestionadas escriben Delivery y su snapshot
 dentro de la misma Unit of Work.
+
+## 18. Migración Azure DevOps
+
+`0010_azure_devops_provider.sql` reconstruye `connections` preservando instalaciones GitHub,
+admite la unión GitHub/Azure, añade estado de reautorización y guarda refresh tokens Azure como
+AES-256-GCM ciphertext/IV/tag. Índices parciales garantizan una instalación GitHub y una
+organización Azure únicas.
+
+`azure_oauth_authorizations` guarda state hasheado, verifier y snapshot cifrados, expiración y
+marcas de consumo/completado. La reconstrucción desactiva foreign keys solo durante la transacción,
+usa `legacy_alter_table` para conservar las referencias existentes y ejecuta
+`foreign_key_check` antes de confirmar.

@@ -76,6 +76,11 @@ export async function runServerCommand(
     return 0;
   }
 
+  if (command === "generate-connection-encryption-key") {
+    io.stdout(`AIWS_CONNECTION_ENCRYPTION_KEY=${randomBytes(32).toString("base64")}\n`);
+    return 0;
+  }
+
   if (command === "healthcheck") {
     const config = loadConfig(environment);
     try {
@@ -101,6 +106,7 @@ const operationalCommands = new Set([
   "generate-runner-token",
   "generate-runner-control-secret",
   "generate-notification-encryption-key",
+  "generate-connection-encryption-key",
   "healthcheck",
 ]);
 

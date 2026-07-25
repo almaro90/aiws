@@ -3,7 +3,7 @@ services:
     build:
       context: .
       target: server
-    image: aiws:0.5.1
+    image: aiws:0.6.0
     restart: unless-stopped
     env_file: ${AIWS_ENV_FILE:-.env}
     environment:
@@ -38,12 +38,12 @@ services:
     build:
       context: .
       target: runner-manager
-    image: aiws-runner-manager:0.5.1
+    image: aiws-runner-manager:0.6.0
     restart: unless-stopped
     env_file: ${AIWS_ENV_FILE:-.env}
     environment:
       AIWS_API_URL: http://aiws:3000
-      AIWS_AGENT_IMAGE: aiws-agent:0.5.1
+      AIWS_AGENT_IMAGE: aiws-agent:0.6.0
       AIWS_DOCKER_NETWORK: aiws-runtime
       AIWS_CREDENTIAL_PROXY_URL: http://runner-manager:4317/v1
     volumes:
@@ -60,7 +60,7 @@ services:
     build:
       context: .
       target: agent
-    image: aiws-agent:0.5.1
+    image: aiws-agent:0.6.0
     command: ["true"]
 
 volumes:

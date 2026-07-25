@@ -480,7 +480,7 @@ Los hitos 1–10 describen la baseline v0.1. La v0.2 se implementa en orden como
 - [x] Fetch aislado en `refs/remotes/origin/*` sin colisión con worktrees.
 - [x] OpenAPI, cliente generado, tests y documentación sincronizados.
 
-## Distribución v0.5.1 — Hito activo
+## Distribución v0.5.1 — completada
 
 ### Hito 23 — Stack publicable y CLI compartido
 
@@ -496,3 +496,19 @@ Los hitos 1–10 describen la baseline v0.1. La v0.2 se implementa en orden como
 
 No forman parte del hito la instalación/configuración de agentes externos, scopes nuevos,
 overlays de sandbox, servicios adicionales ni cambios de dominio/API/SQLite.
+
+## Azure DevOps v0.6.0 — completado
+
+### Hito 24 — Provider gestionado Azure DevOps
+
+- [x] Cerrar Hito 23 y sincronizar PRD, dominio, arquitectura, seguridad y trazabilidad.
+- [x] Unión discriminada Connection y migración forward-only `0010`.
+- [x] Entra OAuth multitenant con PKCE, selección de organización, cifrado y reautorización.
+- [x] `ManagedGitProvider` con adapters GitHub/Azure para repos, ramas, Git y draft PR.
+- [x] Credenciales Git system-only basic/bearer y runner sin exposición de secretos.
+- [x] API, CLI, Web, OpenAPI, cliente generado y versión pública v0.6.0.
+- [x] Tests Core/SQLite/OAuth/adapter/registry/runner/API/CLI/Web.
+- [x] Gates completos, E2E, build y smoke sin red Azure real.
+
+Fuera de alcance: Azure DevOps Server, MSA, PAT, service principals, webhooks, sincronización
+posterior, merge, reviewers, Azure Boards y Pipelines.

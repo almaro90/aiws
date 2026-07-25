@@ -9,8 +9,25 @@ if [ -e .env ]; then
 fi
 
 : "${AIWS_IMAGE_NAMESPACE:?Set AIWS_IMAGE_NAMESPACE, for example ghcr.io/almaro90}"
-AIWS_VERSION="${AIWS_VERSION:-0.5.1}"
+AIWS_VERSION="${AIWS_VERSION:-0.6.0}"
 AIWS_SERVER_IMAGE="${AIWS_IMAGE_NAMESPACE}/aiws:${AIWS_VERSION}"
+
+github_count=0
+azure_count=0
+for value in "${AIWS_GITHUB_APP_ID:-}" "${AIWS_GITHUB_APP_SLUG:-}" "${AIWS_GITHUB_PRIVATE_KEY_BASE64:-}"; do
+  [ -z "${value}" ] || github_count=$((github_count + 1))
+done
+for value in "${AIWS_AZURE_DEVOPS_CLIENT_ID:-}" "${AIWS_AZURE_DEVOPS_CLIENT_SECRET:-}" "${AIWS_CONNECTION_ENCRYPTION_KEY:-}"; do
+  [ -z "${value}" ] || azure_count=$((azure_count + 1))
+done
+if [ "${github_count}" -ne 0 ] && [ "${github_count}" -ne 3 ]; then
+  echo "GitHub requires AIWS_GITHUB_APP_ID, AIWS_GITHUB_APP_SLUG and AIWS_GITHUB_PRIVATE_KEY_BASE64 together." >&2
+  exit 1
+fi
+if [ "${azure_count}" -ne 0 ] && [ "${azure_count}" -ne 3 ]; then
+  echo "Azure DevOps requires AIWS_AZURE_DEVOPS_CLIENT_ID, AIWS_AZURE_DEVOPS_CLIENT_SECRET and AIWS_CONNECTION_ENCRYPTION_KEY together." >&2
+  exit 1
+fi
 
 if [ -t 0 ] && [ -t 1 ]; then
   password_hash="$(docker run --rm -it "${AIWS_SERVER_IMAGE}" hash-password | tr -d '\r')"
@@ -45,9 +62,16 @@ notification_secret="$(printf '%s\n' "${notification_key}" | sed -n 's/^AIWS_NOT
   printf 'AIWS_RUNNER_TOKEN=%s\n' "${runner_token}"
   printf 'AIWS_RUNNER_TOKEN_HASH=%s\n' "${runner_token_hash}"
   printf 'AIWS_RUNNER_CONTROL_SECRET=%s\n' "${runner_control_secret}"
-  printf 'AIWS_GITHUB_APP_ID=%s\n' "${AIWS_GITHUB_APP_ID:-replace-with-github-app-id}"
-  printf 'AIWS_GITHUB_APP_SLUG=%s\n' "${AIWS_GITHUB_APP_SLUG:-replace-with-github-app-slug}"
-  printf 'AIWS_GITHUB_PRIVATE_KEY_BASE64=%s\n' "${AIWS_GITHUB_PRIVATE_KEY_BASE64:-replace-with-base64-pem-private-key}"
+  if [ "${github_count}" -eq 3 ]; then
+    printf 'AIWS_GITHUB_APP_ID=%s\n' "${AIWS_GITHUB_APP_ID}"
+    printf 'AIWS_GITHUB_APP_SLUG=%s\n' "${AIWS_GITHUB_APP_SLUG}"
+    printf 'AIWS_GITHUB_PRIVATE_KEY_BASE64=%s\n' "${AIWS_GITHUB_PRIVATE_KEY_BASE64}"
+  fi
+  if [ "${azure_count}" -eq 3 ]; then
+    printf 'AIWS_AZURE_DEVOPS_CLIENT_ID=%s\n' "${AIWS_AZURE_DEVOPS_CLIENT_ID}"
+    printf 'AIWS_AZURE_DEVOPS_CLIENT_SECRET=%s\n' "${AIWS_AZURE_DEVOPS_CLIENT_SECRET}"
+    printf 'AIWS_CONNECTION_ENCRYPTION_KEY=%s\n' "${AIWS_CONNECTION_ENCRYPTION_KEY}"
+  fi
   printf 'AIWS_REPO_ROOT=%s\n' "${AIWS_REPO_ROOT:-/srv/repos}"
   printf 'AIWS_PORT=%s\n' "${AIWS_PORT:-3000}"
   printf 'AIWS_DOCKER_NETWORK=%s\n' "${AIWS_DOCKER_NETWORK:-aiws-runtime}"

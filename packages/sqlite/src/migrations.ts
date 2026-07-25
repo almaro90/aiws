@@ -104,9 +104,21 @@ function loadMigrations(directory: string): MigrationFile[] {
 }
 
 function applyMigration(database: Database, migration: MigrationFile, appliedAt: string): void {
+  const foreignKeysDisabled = migration.sql.includes("-- aiws:migration foreign_keys=off");
+  if (foreignKeysDisabled) {
+    database.exec("PRAGMA foreign_keys = OFF");
+  }
   database.exec("BEGIN IMMEDIATE");
   try {
     database.exec(migration.sql);
+    if (foreignKeysDisabled) {
+      const violations = database
+        .query<Readonly<Record<string, unknown>>, []>("PRAGMA foreign_key_check")
+        .all();
+      if (violations.length > 0) {
+        throw new MigrationError(`Migration ${migration.version} violates foreign keys.`);
+      }
+    }
     database
       .query<void, [string, string, string, string]>(
         `INSERT INTO schema_migrations(version, name, checksum_sha256, applied_at)
@@ -119,5 +131,10 @@ function applyMigration(database: Database, migration: MigrationFile, appliedAt:
     throw new MigrationError(`Migration ${migration.version}_${migration.name} failed.`, {
       cause: error,
     });
+  } finally {
+    if (foreignKeysDisabled) {
+      database.exec("PRAGMA legacy_alter_table = OFF");
+      database.exec("PRAGMA foreign_keys = ON");
+    }
   }
 }

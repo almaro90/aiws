@@ -2,7 +2,7 @@
 set -eu
 
 REPOSITORY="${AIWS_GITHUB_REPOSITORY:-__AIWS_GITHUB_REPOSITORY__}"
-VERSION="${AIWS_VERSION:-0.5.1}"
+VERSION="${AIWS_VERSION:-0.6.0}"
 BASE_URL="${AIWS_RELEASE_BASE_URL:-https://github.com/${REPOSITORY}/releases/download/v${VERSION}}"
 
 if [ "$(uname -s)" != "Linux" ]; then

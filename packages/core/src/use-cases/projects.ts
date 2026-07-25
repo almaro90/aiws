@@ -69,13 +69,6 @@ export class ProjectUseCases {
 
   async createManaged(input: CreateManagedProjectInput): Promise<Project> {
     const now = timestamp(this.dependencies.clock);
-    const project = createProject({
-      ...input,
-      id: this.dependencies.ids.projectId(),
-      repositoryMode: "managed",
-      gitProvider: "github",
-      now,
-    });
     return this.unitOfWork.execute(async (stores) => {
       const connection = await stores.connections.getById(input.connectionId);
       if (connection === null || connection.status !== "active") {
@@ -83,6 +76,13 @@ export class ProjectUseCases {
           { path: "connectionId", message: "Connection is unavailable." },
         ]);
       }
+      const project = createProject({
+        ...input,
+        id: this.dependencies.ids.projectId(),
+        repositoryMode: "managed",
+        gitProvider: connection.provider,
+        now,
+      });
       if (await stores.projects.repositoryPathExists(project.repositoryPath)) {
         throw new ValidationError([
           { path: "repositoryPath", message: "Repository is already registered." },

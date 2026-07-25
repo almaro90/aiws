@@ -200,3 +200,15 @@ Una decisión que afecte alguno de estos puntos requiere actualizar el pack y ap
 | Agentes desacoplados | skill/docs | sin servicios, credenciales ni overlays propios |
 | Licencia | paquetes/OCI/OpenAPI/release | AGPL-3.0-only y metadatos |
 | Contratos internos estables | OpenAPI/SQL | solo versión/licencia; cero migraciones |
+
+## Cobertura Azure DevOps — Hito 24
+
+| Requisito | Dominio/API | Evidencia |
+| --- | --- | --- |
+| Connection por provider | unión discriminada + migración 0010 | Core/SQLite/backfill |
+| Entra delegado seguro | authorize/callback/complete | PKCE/state/cifrado/expiración |
+| Organización única | índice + complete idempotente | selección/upsert/reautorización |
+| Operación común | `ManagedGitProvider` | regresión GitHub + adapter Azure |
+| Git sin secretos | credenciales basic/bearer | argv/env/log tests |
+| Pull request draft | Azure REST 7.1 | nuevo/existente/refs/footer |
+| Superficies | API/CLI/Web | contrato generado + Playwright |

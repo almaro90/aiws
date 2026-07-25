@@ -62,6 +62,8 @@ import {
   messageTextSchema,
   modelCatalogRequestSchema,
   updateNotificationSettingsSchema,
+  azureAuthorizationIdSchema,
+  completeAzureAuthorizationSchema,
 } from "@aiws/contracts";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { Hono } from "hono";
@@ -80,6 +82,8 @@ import { createOauthState, verifyOauthState } from "../integrations/github-app.t
 import { join } from "node:path";
 import { mkdir, rename, rm } from "node:fs/promises";
 import type { NotificationSettings, NotificationSettingsPatch } from "../notifications.ts";
+import type { AzureDevOpsAuthorizationService } from "../integrations/azure-devops.ts";
+import type { ManagedGitProviderRegistry } from "../integrations/managed-git-provider.ts";
 
 type Authentication = { readonly actorType: ActorType; readonly username?: string };
 
@@ -108,6 +112,8 @@ export interface AppOptions {
   readonly apiTokenHash: string;
   readonly runnerTokenHash?: string;
   readonly github?: GitHubAppGateway;
+  readonly azureAuthorization?: AzureDevOpsAuthorizationService;
+  readonly managedGitProviders?: ManagedGitProviderRegistry;
   readonly modelCatalog?: Pick<RunnerModelCatalogClient, "list">;
   readonly runnerActivity?: Pick<RunnerActivityMonitor, "seen" | "status">;
   readonly repositoriesDir: string;
@@ -133,8 +139,6 @@ export function createApp(options: AppOptions): Hono<{ Variables: Variables }> {
     now().getTime(),
   );
   const managedBranches = async (project: Project) => {
-    if (options.github === undefined)
-      throw new HttpError(409, "integration_unavailable", "GitHub App is not configured.");
     if (
       project.repositoryMode !== "managed" ||
       project.connectionId === null ||
@@ -148,8 +152,28 @@ export function createApp(options: AppOptions): Hono<{ Variables: Variables }> {
     }
     const connection = await options.connections.get(project.connectionId);
     if (connection.status !== "active")
-      throw new HttpError(409, "integration_unavailable", "GitHub Connection is not active.");
-    return options.github.listBranches(connection, project.remoteFullName);
+      throw new HttpError(409, "integration_unavailable", "Managed Git Connection is not active.");
+    const provider = managedProvider(connection);
+    return provider.listBranches(
+      connection,
+      project.remoteFullName,
+      project.remoteRepositoryId ?? undefined,
+    );
+  };
+  const managedProvider = (connection: Awaited<ReturnType<ConnectionUseCases["get"]>>) => {
+    try {
+      if (options.managedGitProviders !== undefined) {
+        return options.managedGitProviders.resolve(connection);
+      }
+      if (connection.provider === "github" && options.github !== undefined) return options.github;
+      throw new Error("Provider is unavailable.");
+    } catch {
+      throw new HttpError(
+        409,
+        "integration_unavailable",
+        `Managed Git provider '${connection.provider}' is not configured.`,
+      );
+    }
   };
   const assertRemoteBranch = async (
     project: Project,
@@ -159,7 +183,7 @@ export function createApp(options: AppOptions): Hono<{ Variables: Variables }> {
     const branches = await managedBranches(project);
     if (!branches.some((branch) => branch.name === branchName)) {
       throw new HttpError(422, "validation_error", "Input validation failed.", {
-        fields: [{ path: field, message: "Branch does not exist in GitHub." }],
+        fields: [{ path: field, message: "Branch does not exist in the managed repository." }],
       });
     }
   };
@@ -223,7 +247,8 @@ export function createApp(options: AppOptions): Hono<{ Variables: Variables }> {
     if (
       path === "/api/v1/health" ||
       path === "/api/v1/auth/login" ||
-      path === "/api/v1/connections/github/callback"
+      path === "/api/v1/connections/github/callback" ||
+      path === "/api/v1/connections/azure-devops/callback"
     ) {
       return next();
     }
@@ -260,11 +285,11 @@ export function createApp(options: AppOptions): Hono<{ Variables: Variables }> {
 
   app.get("/api/v1/health", async (context) => {
     try {
-      if (await options.healthCheck()) return context.json({ status: "ok", version: "0.5.1" });
+      if (await options.healthCheck()) return context.json({ status: "ok", version: "0.6.0" });
     } catch {
       // Health responses intentionally do not disclose storage failures.
     }
-    return context.json({ status: "unhealthy", version: "0.5.1" }, 503);
+    return context.json({ status: "unhealthy", version: "0.6.0" }, 503);
   });
   app.get("/api/v1/system/runner", (context) =>
     context.json(
@@ -472,21 +497,132 @@ export function createApp(options: AppOptions): Hono<{ Variables: Variables }> {
     return context.redirect(location.toString(), 303);
   });
 
-  app.get("/api/v1/connections/:connectionId/repositories", async (context) => {
-    if (options.github === undefined)
-      throw new HttpError(409, "integration_unavailable", "GitHub App is not configured.");
+  app.get("/api/v1/connections/azure-devops/authorize", (context) => {
+    if (context.get("authentication").actorType === "system") {
+      throw new HttpError(403, "forbidden", "Runner authentication cannot install integrations.");
+    }
+    if (options.azureAuthorization === undefined) {
+      throw new HttpError(409, "integration_unavailable", "Azure DevOps OAuth is not configured.");
+    }
+    return context.json(options.azureAuthorization.begin());
+  });
+
+  app.get("/api/v1/connections/azure-devops/callback", async (context) => {
+    if (options.azureAuthorization === undefined) {
+      throw new HttpError(409, "integration_unavailable", "Azure DevOps OAuth is not configured.");
+    }
+    const state = context.req.query("state");
+    const code = context.req.query("code");
+    if (state === undefined || code === undefined) {
+      throw new HttpError(422, "validation_error", "Azure DevOps callback is incomplete.");
+    }
+    let authorizationId: string;
+    try {
+      authorizationId = await options.azureAuthorization.callback(state, code);
+    } catch {
+      throw new HttpError(
+        403,
+        "forbidden",
+        "Azure DevOps authorization is invalid, expired or already used.",
+      );
+    }
+    const location = new URL("/automation", options.publicUrl);
+    location.searchParams.set("azureAuthorizationId", authorizationId);
+    return context.redirect(location.toString(), 303);
+  });
+
+  app.get(
+    "/api/v1/connections/azure-devops/authorizations/:authorizationId/organizations",
+    (context) => {
+      if (options.azureAuthorization === undefined) {
+        throw new HttpError(
+          409,
+          "integration_unavailable",
+          "Azure DevOps OAuth is not configured.",
+        );
+      }
+      const authorizationId = parse(
+        azureAuthorizationIdSchema,
+        context.req.param("authorizationId"),
+      );
+      try {
+        return context.json(options.azureAuthorization.organizations(authorizationId));
+      } catch {
+        throw new HttpError(
+          409,
+          "authorization_unavailable",
+          "Azure DevOps authorization is invalid, expired or already used.",
+        );
+      }
+    },
+  );
+
+  app.post(
+    "/api/v1/connections/azure-devops/authorizations/:authorizationId/complete",
+    async (context) => {
+      if (options.azureAuthorization === undefined) {
+        throw new HttpError(
+          409,
+          "integration_unavailable",
+          "Azure DevOps OAuth is not configured.",
+        );
+      }
+      const authorizationId = parse(
+        azureAuthorizationIdSchema,
+        context.req.param("authorizationId"),
+      );
+      const input = parse(completeAzureAuthorizationSchema, await parseJson(context.req.raw));
+      try {
+        return context.json(
+          options.azureAuthorization.complete(authorizationId, input.organizationId),
+          201,
+        );
+      } catch {
+        throw new HttpError(
+          409,
+          "authorization_unavailable",
+          "Azure DevOps authorization is invalid, expired or the organization is unavailable.",
+        );
+      }
+    },
+  );
+
+  app.get("/api/v1/connections/:connectionId/reauthorize", async (context) => {
     const id = parse(connectionIdSchema, context.req.param("connectionId")) as ConnectionId;
     const connection = await options.connections.get(id);
-    return context.json(await options.github.listRepositories(connection));
+    if (connection.provider === "github") {
+      if (options.github === undefined) {
+        throw new HttpError(409, "integration_unavailable", "GitHub App is not configured.");
+      }
+      const state = createOauthState(options.sessionSecret, "/automation");
+      return context.json({ url: options.github.installationUrl(state) });
+    }
+    if (options.azureAuthorization === undefined) {
+      throw new HttpError(409, "integration_unavailable", "Azure DevOps OAuth is not configured.");
+    }
+    return context.json(options.azureAuthorization.begin(id));
+  });
+
+  app.get("/api/v1/connections/:connectionId/repositories", async (context) => {
+    const id = parse(connectionIdSchema, context.req.param("connectionId")) as ConnectionId;
+    const connection = await options.connections.get(id);
+    if (connection.status !== "active") {
+      throw new HttpError(409, "integration_unavailable", "Connection is not active.");
+    }
+    return context.json(await managedProvider(connection).listRepositories(connection));
   });
 
   app.post("/api/v1/connections/:connectionId/import", async (context) => {
-    if (options.github === undefined)
-      throw new HttpError(409, "integration_unavailable", "GitHub App is not configured.");
     const id = parse(connectionIdSchema, context.req.param("connectionId")) as ConnectionId;
     const input = parse(importRepositorySchema, await parseJson(context.req.raw));
     const connection = await options.connections.get(id);
-    const repository = await options.github.getRepository(connection, input.repositoryId);
+    if (connection.status !== "active") {
+      throw new HttpError(409, "integration_unavailable", "Connection is not active.");
+    }
+    const repository = await managedProvider(connection).getRepository(
+      connection,
+      input.repositoryId,
+    );
     const project = await options.projects.createManaged({
       name: input.name ?? repository.name,
       description: input.description,
@@ -654,8 +790,6 @@ export function createApp(options: AppOptions): Hono<{ Variables: Variables }> {
   });
   app.post("/api/v1/runs/:runId/git-credentials", async (context) => {
     requireSystem(context.get("authentication"));
-    if (options.github === undefined)
-      throw new HttpError(409, "integration_unavailable", "GitHub App is not configured.");
     const runId = parse(runIdSchema, context.req.param("runId")) as RunId;
     const run = await options.runs.get(runId);
     const project = await options.projects.get(run.projectId);
@@ -667,25 +801,29 @@ export function createApp(options: AppOptions): Hono<{ Variables: Variables }> {
       throw new HttpError(409, "invalid_repository_mode", "Run does not use a managed repository.");
     }
     const connection = await options.connections.get(project.connectionId);
-    const repository = await options.github.getRepository(connection, project.remoteRepositoryId);
-    return context.json({
-      cloneUrl: repository.cloneUrl,
-      token: await options.github.accessToken(connection),
-      fullName: repository.fullName,
-      defaultBranch: repository.defaultBranch,
-    });
+    if (connection.status !== "active") {
+      throw new HttpError(409, "integration_unavailable", "Connection is not active.");
+    }
+    return context.json(
+      await managedProvider(connection).gitCredentials(connection, project.remoteRepositoryId),
+    );
   });
   app.post("/api/v1/runs/:runId/pull-request", async (context) => {
     requireSystem(context.get("authentication"));
-    if (options.github === undefined)
-      throw new HttpError(409, "integration_unavailable", "GitHub App is not configured.");
     const runId = parse(runIdSchema, context.req.param("runId")) as RunId;
     const input = parse(createPullRequestSchema, await parseJson(context.req.raw));
     const run = await options.runs.get(runId);
     const project = await options.projects.get(run.projectId);
-    if (project.connectionId === null || project.remoteFullName === null)
+    if (
+      project.connectionId === null ||
+      project.remoteFullName === null ||
+      project.remoteRepositoryId === null
+    )
       throw new HttpError(409, "invalid_repository_mode", "Run does not use a managed repository.");
     const connection = await options.connections.get(project.connectionId);
+    if (connection.status !== "active") {
+      throw new HttpError(409, "integration_unavailable", "Connection is not active.");
+    }
     const task = await options.tasks.get(run.taskId);
     if (
       task.currentDelivery?.baseBranch === null ||
@@ -698,9 +836,10 @@ export function createApp(options: AppOptions): Hono<{ Variables: Variables }> {
       );
     }
     return context.json({
-      prUrl: await options.github.publishPullRequest(
+      prUrl: await managedProvider(connection).publishPullRequest(
         connection,
         project.remoteFullName,
+        project.remoteRepositoryId,
         input,
         task.currentDelivery?.prUrl ?? null,
       ),

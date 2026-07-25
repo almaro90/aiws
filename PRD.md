@@ -1,14 +1,14 @@
 # AIWS — Product Requirements Document
 
-> Versión: v0.5.1  
-> Estado: implementado  
-> Fecha: 24 de julio de 2026
+> Versión: v0.6.0
+> Estado: Hito 24 completado
+> Fecha: 25 de julio de 2026
 
 ## 1. Resumen
 
 AIWS es un gestor de tareas local y AI-first. Permite que una persona cree una petición original e inmutable, que un curator externo la transforme en una especificación implementable, que formule preguntas estructuradas cuando falte información y que un agente externo implemente el trabajo usando el repositorio local asociado al proyecto.
 
-La base v0.1 proporciona el registro, workflow, CLI y contratos para agentes externos. La extensión v0.2 añade repositorios GitHub gestionados y un runner Codex aislado. La v0.3 gestiona Curation. La v0.4 convierte cada Task en un hilo incremental de varios ciclos y separa cada Cycle de su Delivery Git. La v0.5 añade notificaciones globales de cambios de estado mediante ntfy sin acoplar el workflow a la red. El Hito 21 separa por Project gestionado los Agent Profiles de Curation e Implementation, manteniendo cada `Run.agentProfileId` como snapshot histórico. La v0.5.1 distribuye el stack y el CLI por canales independientes para que agentes externos del host compartan el mismo contrato HTTP sin ser desplegados por AIWS.
+La base v0.1 proporciona el registro, workflow, CLI y contratos para agentes externos. La extensión v0.2 añade repositorios GitHub gestionados y un runner Codex aislado. La v0.3 gestiona Curation. La v0.4 convierte cada Task en un hilo incremental de varios ciclos y separa cada Cycle de su Delivery Git. La v0.5 añade notificaciones globales de cambios de estado mediante ntfy sin acoplar el workflow a la red. El Hito 21 separa por Project gestionado los Agent Profiles de Curation e Implementation, manteniendo cada `Run.agentProfileId` como snapshot histórico. La v0.5.1 distribuye el stack y el CLI por canales independientes. La v0.6.0 añade Azure DevOps Services como segundo provider gestionado con paridad operativa con GitHub.
 
 ## 2. Problema
 
@@ -515,3 +515,29 @@ Draft → Curating → Ready → Implementing → Done
 - [x] Configuración de usuario/sistema, precedencia, permisos, redacción y actualización atómica
   están implementadas y probadas.
 - [x] No cambian rutas HTTP, DTOs ni SQLite; OpenAPI solo cambia versión y licencia.
+
+## 20. Hito 24 — Azure DevOps Services gestionado
+
+- Azure DevOps Services cloud se conecta mediante Microsoft Entra OAuth delegado multitenant
+  `organizations`, Authorization Code con PKCE, state aleatorio de un solo uso, `.default` y
+  `offline_access`.
+- Se admiten únicamente cuentas Entra work/school. Azure DevOps Server, cuentas Microsoft
+  personales, PAT y service principals quedan fuera de alcance.
+- `Connection` es una unión discriminada GitHub/Azure DevOps. Azure conserva organización y
+  refresh token cifrado; ningún access token se persiste.
+- La selección de organización ocurre tras el callback a partir de un snapshot cifrado de 15
+  minutos. Completar o reautorizar una organización es idempotente.
+- Repositorios, ramas, importación, curation, implementation, push y draft pull requests usan una
+  seam común resuelta por `Connection.provider`.
+- Azure REST 7.1 usa UUID remoto, `projectName/repositoryName`, normaliza `refs/heads/*`, expone
+  `protected=null` y limita la descripción de PR a 4.000 caracteres preservando el Task ID.
+- GitHub mantiene su comportamiento y usa credenciales Git basic; Azure usa bearer mediante
+  `http.extraHeader` sin secretos en URL, argumentos, refs, errores o logs.
+
+### Aceptación Hito 24
+
+- [x] Migración `0010` conserva Connections GitHub y aplica unicidad Azure por organización.
+- [x] OAuth prueba PKCE/state, expiración, selección, cifrado, refresh rotado e `invalid_grant`.
+- [x] GitHub y Azure cumplen el mismo contrato operativo de repositorios, ramas, Git y PR.
+- [x] API, CLI, Web, OpenAPI, cliente generado y versión pública están sincronizados en v0.6.0.
+- [x] Todos los gates pasan sin depender de la red real de Microsoft o Azure DevOps.

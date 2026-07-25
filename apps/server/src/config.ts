@@ -105,6 +105,18 @@ const schema = z
       .regex(/^[a-z0-9-]+$/u)
       .optional(),
     AIWS_GITHUB_PRIVATE_KEY_BASE64: z.string().min(1).optional(),
+    AIWS_AZURE_DEVOPS_CLIENT_ID: z.string().trim().min(1).max(255).optional(),
+    AIWS_AZURE_DEVOPS_CLIENT_SECRET: z.string().min(1).max(4096).optional(),
+    AIWS_CONNECTION_ENCRYPTION_KEY: z
+      .string()
+      .refine((value) => {
+        const decoded = Buffer.from(value, "base64");
+        return (
+          decoded.byteLength === 32 &&
+          decoded.toString("base64").replace(/=+$/u, "") === value.replace(/=+$/u, "")
+        );
+      }, "must be Base64 encoding exactly 32 bytes")
+      .optional(),
     AIWS_NOTIFICATION_ENCRYPTION_KEY: z
       .string()
       .refine((value) => {
@@ -141,6 +153,22 @@ const schema = z
         code: "custom",
         path: ["AIWS_GITHUB_APP_ID"],
         message: "GitHub App ID, slug and private key must be configured together",
+      });
+    }
+    const azureValues = [
+      value.AIWS_AZURE_DEVOPS_CLIENT_ID,
+      value.AIWS_AZURE_DEVOPS_CLIENT_SECRET,
+      value.AIWS_CONNECTION_ENCRYPTION_KEY,
+    ];
+    if (
+      azureValues.some((item) => item !== undefined) &&
+      azureValues.some((item) => item === undefined)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["AIWS_AZURE_DEVOPS_CLIENT_ID"],
+        message:
+          "Azure DevOps client ID, client secret and Connection encryption key must be configured together",
       });
     }
     if (value.AIWS_ENV !== "production") return;
@@ -192,6 +220,9 @@ type CommonConfig = {
   githubAppId?: string;
   githubAppSlug?: string;
   githubPrivateKeyBase64?: string;
+  azureDevOpsClientId?: string;
+  azureDevOpsClientSecret?: string;
+  connectionEncryptionKey?: string;
   notificationEncryptionKey?: string;
 };
 
@@ -262,6 +293,15 @@ function mapConfig(value: ParsedConfig): Config {
     ...(value.AIWS_GITHUB_PRIVATE_KEY_BASE64 === undefined
       ? {}
       : { githubPrivateKeyBase64: value.AIWS_GITHUB_PRIVATE_KEY_BASE64 }),
+    ...(value.AIWS_AZURE_DEVOPS_CLIENT_ID === undefined
+      ? {}
+      : { azureDevOpsClientId: value.AIWS_AZURE_DEVOPS_CLIENT_ID }),
+    ...(value.AIWS_AZURE_DEVOPS_CLIENT_SECRET === undefined
+      ? {}
+      : { azureDevOpsClientSecret: value.AIWS_AZURE_DEVOPS_CLIENT_SECRET }),
+    ...(value.AIWS_CONNECTION_ENCRYPTION_KEY === undefined
+      ? {}
+      : { connectionEncryptionKey: value.AIWS_CONNECTION_ENCRYPTION_KEY }),
     ...(value.AIWS_NOTIFICATION_ENCRYPTION_KEY === undefined
       ? {}
       : { notificationEncryptionKey: value.AIWS_NOTIFICATION_ENCRYPTION_KEY }),

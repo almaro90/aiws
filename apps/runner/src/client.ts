@@ -64,12 +64,18 @@ export interface Assignment {
   } | null;
 }
 
-export interface GitCredentials {
+interface GitCredentialBase {
   readonly cloneUrl: string;
-  readonly token: string;
   readonly fullName: string;
   readonly defaultBranch: string;
 }
+export type GitCredentials =
+  | (GitCredentialBase & {
+      readonly kind: "basic";
+      readonly username: "x-access-token";
+      readonly password: string;
+    })
+  | (GitCredentialBase & { readonly kind: "bearer"; readonly token: string });
 
 export interface RunState {
   readonly id: string;

@@ -1,10 +1,29 @@
 ![Banner de AIWS con el recorrido visual desde una petición curada hasta su implementación en un repositorio local](./docs/assets/aiws-banner.png)
 
-# AIWS v0.5.1
+# AIWS v0.6.0
 
 AIWS es un gestor de tareas local y AI-first preparado para que personas y agentes externos trabajen sobre repositorios locales con un workflow seguro y trazable.
 
-AIWS incluye Server/API, SPA Web, CLI HTTP, SQLite, almacenamiento local de adjuntos, conexión GitHub App y ejecución aislada de Codex sobre worktrees de repositorios gestionados. La baseline MVP v0.1 continúa disponible para Projects locales y agentes externos.
+AIWS incluye Server/API, SPA Web, CLI HTTP, SQLite, almacenamiento local de adjuntos, Connections
+GitHub y Azure DevOps, y ejecución aislada de Codex sobre worktrees de repositorios gestionados. La
+baseline MVP v0.1 continúa disponible para Projects locales y agentes externos.
+
+## Empieza aquí
+
+- Operadores: [instalación, HTTPS, health, backup y actualización](./docs/guides/installation.md).
+- Administradores de agentes: [runner, Agent Profiles, CLI compartido y skill](./docs/guides/agents.md).
+- Administradores Git: [registro de GitHub App y Microsoft Entra](./docs/guides/managed-git-providers.md).
+- Usuarios y agentes: [Projects, Tasks, Questions, Cycles, Runs y Activity](./docs/guides/projects-and-tasks.md).
+- Agentes CLI: [manual de comandos](./docs/05-cli.md) y
+  [skill autocontenida `aiws-workflow`](./skills/aiws-workflow/SKILL.md).
+- Contribuidores: [PRD](./PRD.md), [arquitectura](./docs/02-architecture.md),
+  [OpenAPI](./docs/contracts/openapi.yaml), [SQL](./docs/database/0001_initial.sql) y
+  [plan de implementación](./docs/09-implementation-plan.md).
+
+El onboarding puede ser Web, CLI o híbrido. Las autorizaciones GitHub y Microsoft Entra siguen
+requiriendo navegador. Tras el callback Azure, el CLI puede listar organizaciones y completar la
+selección; también puede asignar los perfiles de Curation/Implementation y la automatización del
+Project gestionado.
 
 ## Casos de uso
 
@@ -26,12 +45,12 @@ Una **Task** conserva la identidad y el hilo completo de trabajo. Cada petición
 ## Instalación publicada
 
 AIWS y su CLI tienen ciclos independientes. Para instalar el stack sin Bun ni checkout, descargar
-`aiws-deployment-v0.5.1.tar.gz` desde GitHub Releases, extraerlo en un directorio vacío y seguir su
+`aiws-deployment-v0.6.0.tar.gz` desde GitHub Releases, extraerlo en un directorio vacío y seguir su
 `README.md`. El bundle consume estas imágenes multi-arquitectura:
 
-- `ghcr.io/almaro90/aiws:0.5.1`
-- `ghcr.io/almaro90/aiws-runner-manager:0.5.1`
-- `ghcr.io/almaro90/aiws-agent:0.5.1`
+- `ghcr.io/almaro90/aiws:0.6.0`
+- `ghcr.io/almaro90/aiws-runner-manager:0.6.0`
+- `ghcr.io/almaro90/aiws-agent:0.6.0`
 
 El puerto queda ligado a loopback. El operador aporta HTTPS, conserva los volúmenes y configura
 GitHub/Codex solo cuando usa repositorios gestionados.
@@ -58,6 +77,14 @@ sudo -u USUARIO_DEL_AGENTE aiws --json task list
 Un usuario ajeno al grupo no puede leer el token del sistema. Cada usuario autorizado puede
 sobrescribir URL/token con `aiws config set` sin `--system`.
 
+Comprueba la configuración efectiva, Server, versión, Bearer, runner, Connections y Agent Profiles
+sin modificar nada:
+
+```bash
+aiws doctor
+aiws --json doctor
+```
+
 ## Quick start de desarrollo con Docker Compose
 
 ### Requisitos
@@ -73,8 +100,8 @@ Bun 1.3.11 solo es necesario para desarrollar AIWS o ejecutar el CLI desde fuent
 Desde el checkout de AIWS:
 
 ```bash
-docker build -t aiws:0.5.1 .
-docker build --target agent -t aiws-agent:0.5.1 .
+docker build -t aiws:0.6.0 .
+docker build --target agent -t aiws-agent:0.6.0 .
 cp .env.example .env
 ```
 
@@ -83,12 +110,13 @@ cp .env.example .env
 Generar cada valor sin escribirlo automáticamente a disco:
 
 ```bash
-docker run --rm -i aiws:0.5.1 hash-password
-docker run --rm aiws:0.5.1 generate-session-secret
-docker run --rm aiws:0.5.1 generate-api-token
-docker run --rm aiws:0.5.1 generate-runner-token
-docker run --rm aiws:0.5.1 generate-runner-control-secret
-docker run --rm aiws:0.5.1 generate-notification-encryption-key
+docker run --rm -i aiws:0.6.0 hash-password
+docker run --rm aiws:0.6.0 generate-session-secret
+docker run --rm aiws:0.6.0 generate-api-token
+docker run --rm aiws:0.6.0 generate-runner-token
+docker run --rm aiws:0.6.0 generate-runner-control-secret
+docker run --rm aiws:0.6.0 generate-notification-encryption-key
+docker run --rm aiws:0.6.0 generate-connection-encryption-key
 ```
 
 - `hash-password` solicita la contraseña del administrador y devuelve su hash Argon2id.
@@ -131,7 +159,7 @@ curl http://127.0.0.1:3000/api/v1/health
 La respuesta esperada es:
 
 ```json
-{"status":"ok","version":"0.5.1"}
+{"status":"ok","version":"0.6.0"}
 ```
 
 Abrir `http://localhost:3000` e iniciar sesión con `AIWS_ADMIN_USERNAME` y la contraseña original usada para generar el hash.
@@ -141,7 +169,7 @@ Abrir `http://localhost:3000` e iniciar sesión con `AIWS_ADMIN_USERNAME` y la c
 La imagen contiene un binario nativo para la arquitectura con la que se construyó. Extraerlo sin instalar Bun:
 
 ```bash
-docker create --name aiws-cli-copy aiws:0.5.1
+docker create --name aiws-cli-copy aiws:0.6.0
 docker cp aiws-cli-copy:/app/aiws ./aiws
 docker rm aiws-cli-copy
 chmod 0755 ./aiws
@@ -173,13 +201,16 @@ La Web utiliza la misma API y ofrece el workflow completo para una persona admin
 
 ## Repositorios gestionados y Codex
 
-Configura `AIWS_RUNNER_TOKEN`, `AIWS_RUNNER_TOKEN_HASH`, un
-`AIWS_RUNNER_CONTROL_SECRET` independiente y las tres variables `AIWS_GITHUB_*` de
-`.env.example`. En la Web abre **Automation**, conecta la GitHub App, importa un repositorio y
-crea uno o más Agent Profiles eligiendo modelo y reasoning effort del catálogo Codex vivo. En el
-Project importado selecciona por separado los perfiles de Curation e Implementation. Puedes
-guardar Curation con Implementation desactivada; para activar Implementation es obligatorio su
-perfil. Ambos campos pueden usar el mismo perfil.
+Configura `AIWS_RUNNER_TOKEN`, `AIWS_RUNNER_TOKEN_HASH` y un
+`AIWS_RUNNER_CONTROL_SECRET` independiente. Para GitHub configura las tres variables
+`AIWS_GITHUB_*`; para Azure DevOps Services configura conjuntamente
+`AIWS_AZURE_DEVOPS_CLIENT_ID`, `AIWS_AZURE_DEVOPS_CLIENT_SECRET` y
+`AIWS_CONNECTION_ENCRYPTION_KEY`. Elimina del fichero de entorno los bloques de providers que no
+vayas a usar. En la Web abre **Automation**, conecta el provider, elige la organización de Azure
+cuando corresponda, importa un repositorio y crea uno o más Agent Profiles eligiendo modelo y
+reasoning effort del catálogo Codex vivo. En el Project importado selecciona por separado los
+perfiles de Curation e Implementation. Puedes guardar Curation con Implementation desactivada;
+para activar Implementation es obligatorio su perfil. Ambos campos pueden usar el mismo perfil.
 
 Antes de curation, el runner comprueba el ref de la Delivery para inspeccionar el mismo estado que se implementará. Los Runs de implementación reutilizan la rama de la Delivery. Si existe un PR abierto, AIWS publica sobre su rama y actualiza título y cuerpo sin alterar su estado draft; si el PR anterior está cerrado o fusionado, publica uno nuevo. Si el head remoto desapareció, usa la rama por defecto. Actualmente, cuando un PR cerrado o fusionado conserva su head, el PR nuevo puede conservar el nombre de la rama de la Delivery anterior en vez de materializar siempre una Delivery y rama nuevas. Los Runs y sus logs aparecen dentro del Cycle correspondiente en la timeline. Consulta [Git gestionado y automatización Codex](./docs/11-managed-git-and-automation.md) para seguridad, autenticación ChatGPT, recuperación y limitaciones.
 
@@ -322,9 +353,9 @@ sistema y alcanzar AIWS por HTTP. La skill no instala binarios ni gestiona crede
 Instalar desde el tag fijado:
 
 ```bash
-git clone --depth 1 --branch v0.5.1 https://github.com/almaro90/aiws.git /tmp/aiws-v0.5.1
+git clone --depth 1 --branch v0.6.0 https://github.com/almaro90/aiws.git /tmp/aiws-v0.6.0
 mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
-cp -R /tmp/aiws-v0.5.1/skills/aiws-workflow \
+cp -R /tmp/aiws-v0.6.0/skills/aiws-workflow \
   "${CODEX_HOME:-$HOME/.codex}/skills/aiws-workflow"
 ```
 
@@ -334,7 +365,7 @@ La skill estará disponible en un turno o sesión nueva como `$aiws-workflow`.
 
 ```bash
 hermes skills install \
-  https://raw.githubusercontent.com/almaro90/aiws/v0.5.1/skills/aiws-workflow/SKILL.md
+  https://raw.githubusercontent.com/almaro90/aiws/v0.6.0/skills/aiws-workflow/SKILL.md
 ```
 
 Iniciar una sesión nueva y pedir a Hermes que use `aiws-workflow`. Véase la
@@ -346,8 +377,8 @@ La instalación Git de OpenClaw espera `SKILL.md` en la raíz, por lo que se fij
 instala su subdirectorio local:
 
 ```bash
-git clone --depth 1 --branch v0.5.1 https://github.com/almaro90/aiws.git /tmp/aiws-v0.5.1
-openclaw skills install /tmp/aiws-v0.5.1/skills/aiws-workflow \
+git clone --depth 1 --branch v0.6.0 https://github.com/almaro90/aiws.git /tmp/aiws-v0.6.0
+openclaw skills install /tmp/aiws-v0.6.0/skills/aiws-workflow \
   --as aiws-workflow --global
 ```
 

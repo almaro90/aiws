@@ -500,3 +500,14 @@ Al crear una Task gestionada se crea también su Delivery. `Delivery.baseBranch`
 seleccionada, o la preferencia del Project si no hubo selección explícita. Ese snapshot no cambia
 al editar el Project y gobierna el checkout inicial, Curation, Implementation y la base de la Pull
 Request. La rama de trabajo continúa siendo `Delivery.branchName`.
+
+## Connections gestionadas — Hito 24
+
+`Connection` es una unión discriminada por `provider`. GitHub conserva `installationId`; Azure
+DevOps conserva `organizationId` y `organizationName`. Los estados comunes son `active`,
+`reauthorization_required` y `revoked`.
+
+Un Project gestionado deriva `gitProvider` de su Connection. Su `remoteRepositoryId` conserva el
+identificador remoto sin reinterpretarlo: decimal para GitHub o UUID para Azure. El nombre completo
+Azure es `projectName/repositoryName`. Las credenciales OAuth y access tokens no pertenecen al
+dominio ni se exponen en DTOs.

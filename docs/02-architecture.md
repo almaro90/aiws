@@ -384,3 +384,13 @@ ejecución del manager.
 El binario `aiws` no forma parte del ciclo de instalación del stack. Vive en el host y accede
 exclusivamente por HTTP. Agentes externos tampoco forman parte del Compose: compartir el CLI y su
 configuración Unix no amplía la autoridad de AIWS sobre sus procesos, sandboxes o políticas.
+
+## 21. Providers Git gestionados
+
+Server resuelve un `ManagedGitProvider` por `Connection.provider`. La interfaz cubre repositorios,
+ramas, credenciales Git y publicación idempotente de pull requests. GitHub App y Azure DevOps son
+adapters; Hono no selecciona endpoints de provider para operaciones compartidas.
+
+La autorización inicial permanece en módulos específicos. Azure OAuth, cifrado y caché de tokens
+son infraestructura Server/SQLite y no entran en Core. El runner recibe una unión system-only de
+credenciales basic/bearer y configura Git sin interpolar secretos.

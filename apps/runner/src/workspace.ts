@@ -7,6 +7,10 @@ export interface PreparedWorkspace {
   readonly baseSha: string;
 }
 
+export type GitAuthentication =
+  | { readonly kind: "basic"; readonly username: string; readonly password: string }
+  | { readonly kind: "bearer"; readonly token: string };
+
 export class GitWorkspaceManager {
   constructor(private readonly workspacesRoot: string) {}
 
@@ -14,7 +18,7 @@ export class GitWorkspaceManager {
     runId: string,
     mirrorPath: string,
     cloneUrl: string,
-    token: string,
+    authentication: GitAuthentication | string,
     fallbackRef: string,
     branchName: string | null,
     baseRef: string = fallbackRef,
@@ -24,7 +28,7 @@ export class GitWorkspaceManager {
     const askpass = await createAskPass();
     try {
       if (!(await exists(mirrorPath))) {
-        await git(["clone", "--mirror", cloneUrl, mirrorPath], token, askpass);
+        await git(["clone", "--mirror", cloneUrl, mirrorPath], authentication, askpass);
       }
       await git(
         [
@@ -38,7 +42,7 @@ export class GitWorkspaceManager {
           "origin",
           "+refs/heads/*:refs/remotes/origin/*",
         ],
-        token,
+        authentication,
         askpass,
       );
       const workspace = join(this.workspacesRoot, "runs", runId, "repository");
@@ -47,21 +51,26 @@ export class GitWorkspaceManager {
       const localBranchExists =
         branchName === null
           ? false
-          : await refExists(mirrorPath, `refs/heads/${branchName}`, token, askpass);
+          : await refExists(mirrorPath, `refs/heads/${branchName}`, authentication, askpass);
       const remoteBranchRef = branchName === null ? null : `refs/remotes/origin/${branchName}`;
       const remoteBranchExists =
         remoteBranchRef === null
           ? false
-          : await refExists(mirrorPath, remoteBranchRef, token, askpass);
+          : await refExists(mirrorPath, remoteBranchRef, authentication, askpass);
       const preferredRemoteRef = `refs/remotes/origin/${baseRef}`;
       const preferredLocalRef = `refs/heads/${baseRef}`;
       const fallbackRemoteRef = `refs/remotes/origin/${fallbackRef}`;
-      const resolvedBaseRef = (await refExists(mirrorPath, preferredRemoteRef, token, askpass))
+      const resolvedBaseRef = (await refExists(
+        mirrorPath,
+        preferredRemoteRef,
+        authentication,
+        askpass,
+      ))
         ? preferredRemoteRef
         : baseRef !== fallbackRef &&
-            (await refExists(mirrorPath, preferredLocalRef, token, askpass))
+            (await refExists(mirrorPath, preferredLocalRef, authentication, askpass))
           ? preferredLocalRef
-          : (await refExists(mirrorPath, fallbackRemoteRef, token, askpass))
+          : (await refExists(mirrorPath, fallbackRemoteRef, authentication, askpass))
             ? fallbackRemoteRef
             : null;
       if (resolvedBaseRef === null) {
@@ -73,7 +82,7 @@ export class GitWorkspaceManager {
       if (branchName !== null && remoteBranchRef !== null && remoteBranchExists) {
         await git(
           ["--git-dir", mirrorPath, "branch", "--force", branchName, remoteBranchRef],
-          token,
+          authentication,
           askpass,
         );
       }
@@ -102,7 +111,7 @@ export class GitWorkspaceManager {
                 workspace,
                 resolvedBaseRef,
               ],
-        token,
+        authentication,
         askpass,
       );
       const ownership = Bun.spawn(["chown", "-R", "1000:1000", workspace], {
@@ -111,7 +120,9 @@ export class GitWorkspaceManager {
       });
       if ((await ownership.exited) !== 0)
         throw new Error("Could not assign workspace ownership to the agent user.");
-      const baseSha = (await git(["-C", workspace, "rev-parse", "HEAD"], token, askpass)).trim();
+      const baseSha = (
+        await git(["-C", workspace, "rev-parse", "HEAD"], authentication, askpass)
+      ).trim();
       return { path: workspace, baseSha };
     } finally {
       await rm(askpass.directory, { recursive: true, force: true });
@@ -121,14 +132,18 @@ export class GitWorkspaceManager {
   async commitAndPush(
     workspace: PreparedWorkspace,
     branchName: string,
-    token: string,
+    authentication: GitAuthentication | string,
     message: string,
   ): Promise<string> {
     const askpass = await createAskPass();
     try {
-      const status = await git(["-C", workspace.path, "status", "--porcelain"], token, askpass);
+      const status = await git(
+        ["-C", workspace.path, "status", "--porcelain"],
+        authentication,
+        askpass,
+      );
       if (status.trim() !== "") {
-        await git(["-C", workspace.path, "add", "--all"], token, askpass);
+        await git(["-C", workspace.path, "add", "--all"], authentication, askpass);
         await git(
           [
             "-C",
@@ -141,12 +156,12 @@ export class GitWorkspaceManager {
             "-m",
             message,
           ],
-          token,
+          authentication,
           askpass,
         );
       }
       const headSha = (
-        await git(["-C", workspace.path, "rev-parse", "HEAD"], token, askpass)
+        await git(["-C", workspace.path, "rev-parse", "HEAD"], authentication, askpass)
       ).trim();
       if (headSha === workspace.baseSha)
         throw new Error("Agent completed without repository changes.");
@@ -160,7 +175,7 @@ export class GitWorkspaceManager {
           "origin",
           `${branchName}:refs/heads/${branchName}`,
         ],
-        token,
+        authentication,
         askpass,
       );
       return headSha;
@@ -210,10 +225,14 @@ export class GitWorkspaceManager {
 async function refExists(
   mirrorPath: string,
   reference: string,
-  token: string,
+  authentication: GitAuthentication | string,
   askpass: { readonly path: string },
 ): Promise<boolean> {
-  return git(["--git-dir", mirrorPath, "show-ref", "--verify", reference], token, askpass).then(
+  return git(
+    ["--git-dir", mirrorPath, "show-ref", "--verify", reference],
+    authentication,
+    askpass,
+  ).then(
     () => true,
     () => false,
   );
@@ -243,32 +262,15 @@ async function removeExistingBranchWorktree(
 
 async function git(
   args: readonly string[],
-  token: string,
+  authentication: GitAuthentication | string,
   askpass: { readonly path: string },
 ): Promise<string> {
-  const process = Bun.spawn(
-    [
-      "git",
-      "-c",
-      "credential.helper=",
-      "-c",
-      "core.hooksPath=/dev/null",
-      "-c",
-      "safe.directory=*",
-      ...args,
-    ],
-    {
-      stdout: "pipe",
-      stderr: "pipe",
-      env: {
-        PATH: Bun.env.PATH ?? "/usr/bin:/bin",
-        HOME: "/tmp",
-        GIT_TERMINAL_PROMPT: "0",
-        GIT_ASKPASS: askpass.path,
-        AIWS_GIT_TOKEN: token,
-      },
-    },
-  );
+  const invocation = gitProcessInvocation(args, authentication, askpass.path);
+  const process = Bun.spawn(invocation.command, {
+    stdout: "pipe",
+    stderr: "pipe",
+    env: invocation.env,
+  });
   const [stdout, stderr, code] = await Promise.all([
     new Response(process.stdout).text(),
     new Response(process.stderr).text(),
@@ -277,10 +279,53 @@ async function git(
   if (code !== 0) throw new Error(`Git command failed (${code}): ${stderr.slice(0, 2000)}`);
   return stdout;
 }
+
+export function gitProcessInvocation(
+  args: readonly string[],
+  authentication: GitAuthentication | string,
+  askpassPath: string,
+): {
+  readonly command: string[];
+  readonly env: Readonly<Record<string, string>>;
+} {
+  const auth =
+    typeof authentication === "string"
+      ? { kind: "basic" as const, username: "x-access-token", password: authentication }
+      : authentication;
+  return {
+    command: [
+      "git",
+      "-c",
+      "credential.helper=",
+      "-c",
+      "core.hooksPath=/dev/null",
+      "-c",
+      "safe.directory=*",
+      ...(auth.kind === "bearer" ? ["--config-env=http.extraHeader=AIWS_GIT_AUTH_HEADER"] : []),
+      ...args,
+    ],
+    env: {
+      PATH: Bun.env.PATH ?? "/usr/bin:/bin",
+      HOME: "/tmp",
+      GIT_TERMINAL_PROMPT: "0",
+      GIT_ASKPASS: askpassPath,
+      ...(auth.kind === "basic"
+        ? {
+            AIWS_GIT_USERNAME: auth.username,
+            AIWS_GIT_PASSWORD: auth.password,
+          }
+        : { AIWS_GIT_AUTH_HEADER: `Authorization: Bearer ${auth.token}` }),
+    },
+  };
+}
 async function createAskPass(): Promise<{ readonly path: string; readonly directory: string }> {
   const directory = await mkdtemp(join(tmpdir(), "aiws-askpass-"));
   const path = join(directory, "askpass.sh");
-  await writeFile(path, "#!/bin/sh\nprintf '%s' \"$AIWS_GIT_TOKEN\"\n", { mode: 0o700 });
+  await writeFile(
+    path,
+    '#!/bin/sh\ncase "$1" in *Username*) printf \'%s\' "$AIWS_GIT_USERNAME" ;; *) printf \'%s\' "$AIWS_GIT_PASSWORD" ;; esac\n',
+    { mode: 0o700 },
+  );
   await chmod(path, 0o700);
   return { path, directory };
 }

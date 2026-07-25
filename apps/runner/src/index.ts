@@ -11,7 +11,7 @@ const config = {
   apiUrl: required("AIWS_API_URL"),
   runnerToken: required("AIWS_RUNNER_TOKEN"),
   workspacesDir: Bun.env.AIWS_WORKSPACES_DIR ?? "/workspaces",
-  image: Bun.env.AIWS_AGENT_IMAGE ?? "aiws-agent:0.5.1",
+  image: Bun.env.AIWS_AGENT_IMAGE ?? "aiws-agent:0.6.0",
   network: Bun.env.AIWS_DOCKER_NETWORK ?? "aiws_default",
   pollMs: integer(Bun.env.AIWS_RUNNER_POLL_MS ?? "15000", 1000),
   proxyPort: integer(Bun.env.AIWS_CREDENTIAL_PROXY_PORT ?? "4317", 1),
@@ -107,7 +107,7 @@ async function execute(assignment: Assignment): Promise<void> {
         runId,
         assignment.project.repositoryPath,
         preparationCredentials.cloneUrl,
-        preparationCredentials.token,
+        gitAuthentication(preparationCredentials),
         baseBranch,
         assignment.run.branchName,
         assignment.delivery?.branchName ?? baseBranch,
@@ -155,7 +155,7 @@ async function execute(assignment: Assignment): Promise<void> {
     const headSha = await workspaces.commitAndPush(
       prepared,
       assignment.run.branchName,
-      publishingCredentials.token,
+      gitAuthentication(publishingCredentials),
       `aiws: ${assignment.task.title}`,
     );
     await assertActive(runId);
@@ -192,6 +192,16 @@ async function execute(assignment: Assignment): Promise<void> {
       await workspaces.cleanup(runId, assignment.project.repositoryPath).catch(() => undefined);
     }
   }
+}
+
+function gitAuthentication(credentials: Awaited<ReturnType<AiwsRunnerClient["credentials"]>>) {
+  return credentials.kind === "basic"
+    ? {
+        kind: "basic" as const,
+        username: credentials.username,
+        password: credentials.password,
+      }
+    : { kind: "bearer" as const, token: credentials.token };
 }
 
 async function assertActive(runId: string): Promise<void> {

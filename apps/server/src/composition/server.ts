@@ -18,6 +18,13 @@ import { createApp } from "../http/app.ts";
 import { JsonLogger } from "../logging/logger.ts";
 import { RepositoryValidator } from "../repositories/repository-validator.ts";
 import { GitHubAppGateway } from "../integrations/github-app.ts";
+import {
+  AzureAccessTokenManager,
+  AzureDevOpsAuthorizationService,
+  AzureDevOpsProvider,
+  parseConnectionEncryptionKey,
+} from "../integrations/azure-devops.ts";
+import { ManagedGitProviderRegistry } from "../integrations/managed-git-provider.ts";
 import { RunnerModelCatalogClient } from "../integrations/runner-model-catalog.ts";
 import { RunnerActivityMonitor } from "../runner-activity.ts";
 import {
@@ -86,6 +93,41 @@ export async function composeServer(config: Config) {
             appSlug: config.githubAppSlug,
             privateKey: Buffer.from(config.githubPrivateKeyBase64, "base64").toString("utf8"),
           });
+    const connectionEncryptionKey = parseConnectionEncryptionKey(config.connectionEncryptionKey);
+    const encryptedConnectionCount =
+      database
+        .query<{ count: number }, []>(
+          "SELECT count(*) AS count FROM connections WHERE refresh_token_ciphertext IS NOT NULL",
+        )
+        .get()?.count ?? 0;
+    if (encryptedConnectionCount > 0 && connectionEncryptionKey === null) {
+      throw new ConfigError(
+        "AIWS_CONNECTION_ENCRYPTION_KEY",
+        "is required because encrypted Connection credentials exist",
+      );
+    }
+    const azureConfig =
+      config.azureDevOpsClientId === undefined ||
+      config.azureDevOpsClientSecret === undefined ||
+      connectionEncryptionKey === null
+        ? undefined
+        : {
+            clientId: config.azureDevOpsClientId,
+            clientSecret: config.azureDevOpsClientSecret,
+            redirectUri: `${credentials.publicUrl}/api/v1/connections/azure-devops/callback`,
+            encryptionKey: connectionEncryptionKey,
+          };
+    const azureAuthorization =
+      azureConfig === undefined
+        ? undefined
+        : new AzureDevOpsAuthorizationService(database, azureConfig);
+    const azure =
+      azureConfig === undefined
+        ? undefined
+        : new AzureDevOpsProvider(new AzureAccessTokenManager(database, azureConfig), {});
+    const managedGitProviders = new ManagedGitProviderRegistry(
+      [github, azure].filter((provider) => provider !== undefined),
+    );
     const repositoryValidator = await RepositoryValidator.create(credentials.allowedRepoRoots);
     const openApiDocument = await readOpenApiSnapshot();
     const webAssetsDirectory = await findWebAssets();
@@ -132,6 +174,8 @@ export async function composeServer(config: Config) {
       apiTokenHash: credentials.apiTokenHash,
       ...(config.runnerTokenHash === undefined ? {} : { runnerTokenHash: config.runnerTokenHash }),
       ...(github === undefined ? {} : { github }),
+      ...(azureAuthorization === undefined ? {} : { azureAuthorization }),
+      managedGitProviders,
       ...(modelCatalog === undefined ? {} : { modelCatalog }),
       runnerActivity,
       notificationSettings,

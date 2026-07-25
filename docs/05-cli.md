@@ -128,10 +128,18 @@ aiws project update PROJECT_ID \
   [--description TEXT] \
   [--repository-path PATH] \
   [--git-provider PROVIDER] \
-  [--account-scope SCOPE]
+  [--account-scope SCOPE] \
+  [--default-branch BRANCH] \
+  [--curation-agent-profile ID | --clear-curation-agent-profile] \
+  [--implementation-agent-profile ID | --clear-implementation-agent-profile] \
+  [--enable-automation | --disable-automation] \
+  [--schedule-cron EXPRESSION | --clear-schedule] \
+  [--schedule-timezone TIMEZONE] \
+  [--max-concurrency 1..16]
 ```
 
-Al menos un campo.
+Al menos un campo. Cada par set/clear y enable/disable es incompatible. Perfil y activación pueden
+enviarse juntos en un único PATCH; Server valida Projects locales, perfiles habilitados y cron.
 
 ### Archive/unarchive
 
@@ -547,3 +555,32 @@ GitHub Releases publica:
 
 Los archivos Unix contienen un ejecutable llamado `aiws`; Windows contiene `aiws.exe`. El
 instalador compartido del VPS es solo Linux y no modifica Server ni Docker.
+
+## 17. Azure DevOps
+
+```bash
+aiws connection azure-authorize
+aiws connection azure-organizations AUTHORIZATION_ID
+aiws connection azure-complete AUTHORIZATION_ID --organization-id ORGANIZATION_ID
+aiws connection reauthorize CONNECTION_ID
+```
+
+`azure-authorize` y `reauthorize` devuelven una URL para el navegador. Tras el callback,
+`azure-organizations` lista el snapshot temporal y `azure-complete` selecciona una organización.
+`connection list`, `repos`, `import` y `revoke` son provider-neutral y aceptan UUIDs de repositorio
+Azure sin interpretarlos.
+
+## 18. Doctor
+
+```bash
+aiws doctor
+aiws --json doctor
+```
+
+El diagnóstico es read-only y comprueba, en orden fijo, configuración/token, health, versión,
+Bearer, runner, Connections y Agent Profiles. El JSON estable contiene `ok`, `cliVersion`,
+`apiUrl` y todos los `checks` con estado `pass|warning|fail|skipped`. Runner offline/unknown,
+versiones distintas, reautorizaciones y perfiles ausentes/deshabilitados son warnings con exit 0.
+Configuración/auth inválida usa exit 3; Server unhealthy/respuesta inválida, 6; red/timeout, 7.
+Incluso al fallar, `--json` escribe el diagnóstico en stdout y nunca incluye tokens, credenciales
+ni rutas sensibles.

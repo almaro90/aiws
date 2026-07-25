@@ -87,7 +87,7 @@ describe("Hito 9 operational commands", () => {
     let healthy = true;
     const fetcher = (async () =>
       Response.json(
-        { status: healthy ? "ok" : "unhealthy", version: "0.5.1" },
+        { status: healthy ? "ok" : "unhealthy", version: "0.6.0" },
         { status: healthy ? 200 : 503 },
       )) as unknown as typeof fetch;
     const environment = { AIWS_ENV: "test" };

@@ -12,7 +12,7 @@
     },
     "apps/cli": {
       "name": "@aiws/cli",
-      "version": "0.5.1",
+      "version": "0.6.0",
       "dependencies": {
         "@aiws/api-client": "workspace:*",
         "commander": "14.0.2",
@@ -20,14 +20,14 @@
     },
     "apps/runner": {
       "name": "@aiws/runner",
-      "version": "0.5.1",
+      "version": "0.6.0",
       "dependencies": {
         "@openai/codex": "0.144.4",
       },
     },
     "apps/server": {
       "name": "@aiws/server",
-      "version": "0.5.1",
+      "version": "0.6.0",
       "dependencies": {
         "@aiws/contracts": "workspace:*",
         "@aiws/core": "workspace:*",
@@ -38,7 +38,7 @@
     },
     "apps/web": {
       "name": "@aiws/web",
-      "version": "0.5.1",
+      "version": "0.6.0",
       "dependencies": {
         "@aiws/api-client": "workspace:*",
         "@base-ui/react": "1.6.0",
@@ -69,7 +69,7 @@
     },
     "packages/api-client": {
       "name": "@aiws/api-client",
-      "version": "0.5.1",
+      "version": "0.6.0",
       "dependencies": {
         "@aiws/contracts": "workspace:*",
         "openapi-fetch": "0.15.0",
@@ -80,7 +80,7 @@
     },
     "packages/contracts": {
       "name": "@aiws/contracts",
-      "version": "0.5.1",
+      "version": "0.6.0",
       "dependencies": {
         "@aiws/core": "workspace:*",
         "zod": "4.1.12",
@@ -88,14 +88,14 @@
     },
     "packages/core": {
       "name": "@aiws/core",
-      "version": "0.5.1",
+      "version": "0.6.0",
       "dependencies": {
         "ulid": "3.0.1",
       },
     },
     "packages/sqlite": {
       "name": "@aiws/sqlite",
-      "version": "0.5.1",
+      "version": "0.6.0",
       "dependencies": {
         "@aiws/core": "workspace:*",
       },

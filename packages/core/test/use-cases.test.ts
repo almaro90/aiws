@@ -98,6 +98,7 @@ class MemoryUnitOfWork implements UnitOfWork {
       getById: async () => null,
       list: async () => [],
       findByInstallation: async () => null,
+      findByOrganization: async () => null,
       insert: async () => {},
       update: async () => {},
     },

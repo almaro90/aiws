@@ -68,6 +68,7 @@ aiws-server generate-api-token
 aiws-server generate-runner-token
 aiws-server generate-runner-control-secret
 aiws-server generate-notification-encryption-key
+aiws-server generate-connection-encryption-key
 ```
 
 Reglas:
@@ -79,6 +80,7 @@ Reglas:
 - `generate-runner-control-secret` genera el secreto independiente del canal Server → manager.
 - No escriben ficheros automáticamente.
 - `generate-notification-encryption-key` devuelve una clave AES-256 en Base64.
+- `generate-connection-encryption-key` devuelve la clave AES-256 usada por OAuth gestionado.
 
 ## 4. Password y login
 
@@ -337,7 +339,7 @@ No registrar:
 ```yaml
 services:
   aiws:
-    image: ghcr.io/example/aiws:0.5.1
+    image: ghcr.io/example/aiws:0.6.0
     restart: unless-stopped
     env_file: .env
     ports:
@@ -459,3 +461,17 @@ Los repository roots no forman parte del backup de AIWS.
   el CLI y proporciona configuración accesible. AIWS no genera overlays ni imágenes derivadas.
 - Los approvals y políticas de ejecución pertenecen al agente externo. AIWS mantiene un único
   bearer con autoridad administrativa completa; v0.5.1 no añade scopes ni identidades.
+
+# Addendum v0.6 — Azure DevOps
+
+- `AIWS_AZURE_DEVOPS_CLIENT_ID`, `AIWS_AZURE_DEVOPS_CLIENT_SECRET` y
+  `AIWS_CONNECTION_ENCRYPTION_KEY` son opcionales pero atómicos. La clave codifica 32 bytes y es
+  obligatoria al arrancar si SQLite contiene credenciales Connection cifradas.
+- Entra usa tenant `organizations`, Authorization Code + PKCE, state aleatorio hasheado y
+  `offline_access`; no se admiten MSA, PAT, service principals ni Azure DevOps Server.
+- Verifier, snapshot y refresh token usan AES-256-GCM. Access tokens solo viven en una caché corta
+  en memoria con margen de expiración y exclusión por Connection.
+- Cada refresh token rotado se confirma atómicamente. `invalid_grant` marca
+  `reauthorization_required`.
+- Git Azure usa `--config-env=http.extraHeader=...`; los secretos no aparecen en URL, argv, refs,
+  errores o logs.

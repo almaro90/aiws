@@ -28,9 +28,11 @@ export { updateNotificationSettingsSchema } from "./schemas/notifications.ts";
 export {
   advanceRunSchema,
   agentProfileIdSchema,
+  azureAuthorizationIdSchema,
   cancelRunSchema,
   completeRunSchema,
   completeCurationRunSchema,
+  completeAzureAuthorizationSchema,
   connectionIdSchema,
   createAgentProfileSchema,
   modelCatalogRequestSchema,

@@ -189,6 +189,86 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/connections/azure-devops/authorize": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["authorizeAzureDevOps"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/connections/azure-devops/callback": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["callbackAzureDevOps"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/connections/azure-devops/authorizations/{authorizationId}/organizations": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["listAzureDevOpsOrganizations"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/connections/azure-devops/authorizations/{authorizationId}/complete": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["completeAzureDevOpsAuthorization"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/connections/{connectionId}/reauthorize": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["reauthorizeConnection"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/connections/{connectionId}/repositories": {
     parameters: {
       query?: never;
@@ -915,6 +995,7 @@ export interface components {
     AttachmentId: string;
     EventId: string;
     ConnectionId: string;
+    AzureAuthorizationId: string;
     AgentProfileId: string;
     RunId: string;
     TaskCycleId: string;
@@ -1131,19 +1212,51 @@ export interface components {
       currentCycle: components["schemas"]["TaskCycle"];
       currentDelivery: components["schemas"]["Delivery"] | null;
     };
-    Connection: {
+    Connection:
+      | components["schemas"]["GitHubConnection"]
+      | components["schemas"]["AzureDevOpsConnection"];
+    ConnectionBase: {
       id: components["schemas"]["ConnectionId"];
-      /** @constant */
-      provider: "github";
+      /** @enum {string} */
+      provider: "github" | "azure_devops";
       /** Format: uri */
       host: string;
       externalAccountId: string;
       displayName: string;
-      installationId: string;
       /** @enum {string} */
-      status: "active" | "revoked";
+      status: "active" | "reauthorization_required" | "revoked";
       createdAt: components["schemas"]["Timestamp"];
       updatedAt: components["schemas"]["Timestamp"];
+    };
+    GitHubConnection: components["schemas"]["ConnectionBase"] & {
+      /** @constant */
+      provider?: "github";
+      installationId: string;
+    } & {
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      provider: "github";
+    };
+    AzureDevOpsConnection: components["schemas"]["ConnectionBase"] & {
+      /** @constant */
+      provider?: "azure_devops";
+      organizationId: string;
+      organizationName: string;
+    } & {
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      provider: "azure_devops";
+    };
+    AzureDevOpsOrganization: {
+      id: string;
+      name: string;
+    };
+    CompleteAzureDevOpsAuthorizationRequest: {
+      organizationId: string;
     };
     RemoteRepository: {
       id: string;
@@ -1160,7 +1273,7 @@ export interface components {
     RemoteBranch: {
       name: string;
       sha: string;
-      protected: boolean;
+      protected: boolean | null;
     };
     ImportRepositoryRequest: {
       repositoryId: string;
@@ -1339,13 +1452,27 @@ export interface components {
       before: components["schemas"]["Timestamp"];
     };
     /** @description Runner-only response. Never exposed to Web or CLI actors. */
-    GitCredentials: {
-      /** Format: uri */
-      cloneUrl: string;
-      token: string;
-      fullName: string;
-      defaultBranch: string;
-    };
+    GitCredentials:
+      | {
+          /** @constant */
+          kind: "basic";
+          /** Format: uri */
+          cloneUrl: string;
+          /** @constant */
+          username: "x-access-token";
+          password: string;
+          fullName: string;
+          defaultBranch: string;
+        }
+      | {
+          /** @constant */
+          kind: "bearer";
+          /** Format: uri */
+          cloneUrl: string;
+          token: string;
+          fullName: string;
+          defaultBranch: string;
+        };
     CreatePullRequestRequest: {
       title: string;
       body: string;
@@ -1561,6 +1688,7 @@ export interface components {
     QuestionId: components["schemas"]["QuestionId"];
     AttachmentId: components["schemas"]["AttachmentId"];
     ConnectionId: components["schemas"]["ConnectionId"];
+    AzureAuthorizationId: components["schemas"]["AzureAuthorizationId"];
     AgentProfileId: components["schemas"]["AgentProfileId"];
     RunId: components["schemas"]["RunId"];
     /** @description Expected Task version, conventionally quoted. */
@@ -1862,6 +1990,130 @@ export interface operations {
       };
       403: components["responses"]["Forbidden"];
       422: components["responses"]["ValidationError"];
+    };
+  };
+  authorizeAzureDevOps: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Microsoft Entra authorization URL */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            /** Format: uri */
+            url: string;
+          };
+        };
+      };
+      409: components["responses"]["Conflict"];
+    };
+  };
+  callbackAzureDevOps: {
+    parameters: {
+      query: {
+        state: string;
+        code: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OAuth completed; redirect to organization selection */
+      303: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      403: components["responses"]["Forbidden"];
+      422: components["responses"]["ValidationError"];
+    };
+  };
+  listAzureDevOpsOrganizations: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        authorizationId: components["parameters"]["AzureAuthorizationId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Organizations from the encrypted authorization snapshot */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AzureDevOpsOrganization"][];
+        };
+      };
+      409: components["responses"]["Conflict"];
+    };
+  };
+  completeAzureDevOpsAuthorization: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        authorizationId: components["parameters"]["AzureAuthorizationId"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CompleteAzureDevOpsAuthorizationRequest"];
+      };
+    };
+    responses: {
+      /** @description Azure DevOps Connection registered or reauthorized */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Connection"];
+        };
+      };
+      409: components["responses"]["Conflict"];
+    };
+  };
+  reauthorizeConnection: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        connectionId: components["parameters"]["ConnectionId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Provider authorization URL */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            /** Format: uri */
+            url: string;
+          };
+        };
+      };
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
     };
   };
   listConnectionRepositories: {

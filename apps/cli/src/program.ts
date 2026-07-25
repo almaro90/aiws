@@ -5,6 +5,7 @@ import {
   type CliConfig,
   type ConfigPaths,
   configPaths,
+  DEFAULT_API_URL,
   LocalCliError,
   PartialCliError,
   resolveConfig,
@@ -16,6 +17,27 @@ import { type CliIo, processIo, readTextInput, writeError, writeResult } from ".
 
 type Environment = Readonly<Record<string, string | undefined>>;
 type ApiResult<T> = Promise<{ data?: T; error?: unknown; response: Response }>;
+const CLI_VERSION = "0.6.0";
+
+type DoctorStatus = "pass" | "warning" | "fail" | "skipped";
+interface DoctorCheck {
+  readonly name: string;
+  readonly status: DoctorStatus;
+  readonly message: string;
+  readonly details: Readonly<Record<string, unknown>>;
+}
+interface DoctorResult {
+  readonly ok: boolean;
+  readonly cliVersion: string;
+  readonly apiUrl: string;
+  readonly checks: readonly DoctorCheck[];
+}
+
+class DoctorExit extends Error {
+  constructor(readonly exitCode: number) {
+    super("Doctor completed with failures.");
+  }
+}
 
 export interface ProgramDependencies {
   readonly io?: CliIo;
@@ -31,7 +53,7 @@ export function createProgram(dependencies: ProgramDependencies = {}): Command {
   const program = new Command()
     .name("aiws")
     .description("AIWS HTTP command-line client")
-    .version("0.5.1")
+    .version(CLI_VERSION)
     .option("--api-url <url>", "AIWS server URL")
     .option("--token <token>", "Bearer token")
     .option("--json", "emit compact JSON");
@@ -41,6 +63,7 @@ export function createProgram(dependencies: ProgramDependencies = {}): Command {
       if (!program.opts().json) io.stderr(value);
     },
   });
+  program.exitOverride();
 
   const context = (): { config: CliConfig; client: ReturnType<typeof createApiClient> } => {
     const config = resolveConfig(program.opts(), environment, paths);
@@ -57,14 +80,408 @@ export function createProgram(dependencies: ProgramDependencies = {}): Command {
   const emit = (value: unknown, config: CliConfig) => writeResult(io, value, config.json);
 
   addConfigCommands(program, io, environment, paths);
+  addDoctorCommand(program, io, environment, paths, dependencies.fetch);
   addProjectCommands(program, context, emit);
   addTaskCommands(program, context, emit, io, dependencies.fetch);
   addConnectionCommands(program, context, emit);
   addAgentProfileCommands(program, context, emit);
   addRunCommands(program, context, emit);
   addRunnerCommands(program, context, emit);
-  program.exitOverride();
   return program;
+}
+
+function addDoctorCommand(
+  program: Command,
+  io: CliIo,
+  environment: Environment,
+  paths: ConfigPaths,
+  injectedFetch: typeof globalThis.fetch | undefined,
+): void {
+  program
+    .command("doctor")
+    .description("Diagnose CLI and Server connectivity without changing state")
+    .action(async () => {
+      const options = program.opts();
+      const json = Boolean(options.json);
+      const checks: DoctorCheck[] = [];
+      let apiUrl = DEFAULT_API_URL;
+      let config: CliConfig | undefined;
+      let configurationReadable = false;
+
+      try {
+        const display = resolveDisplayConfig(options, environment, paths);
+        apiUrl = display.apiUrl;
+        configurationReadable = true;
+        const tokenConfigured = display.token !== null;
+        try {
+          config = resolveConfig(options, environment, paths);
+          checks.push(
+            doctorCheck("configuration", "pass", "Effective configuration is valid.", {
+              tokenConfigured: true,
+            }),
+          );
+        } catch (error) {
+          checks.push(
+            doctorCheck("configuration", "fail", safeLocalMessage(error), {
+              tokenConfigured,
+            }),
+          );
+        }
+      } catch (error) {
+        checks.push(
+          doctorCheck("configuration", "fail", safeLocalMessage(error), {
+            tokenConfigured: false,
+          }),
+        );
+      }
+
+      const timeoutMs = config?.httpTimeoutMs ?? doctorTimeout(environment);
+      const fetcher = injectedFetch ?? globalThis.fetch;
+      let healthVersion: string | undefined;
+      let healthPassed = false;
+      let networkFailure = false;
+      let serverFailure = false;
+      let authenticationInvalid = false;
+
+      if (!configurationReadable) {
+        checks.push(
+          skippedDoctorCheck("health", "Health was skipped because configuration is invalid."),
+        );
+      } else {
+        try {
+          const response = await fetcher(`${apiBaseUrl(apiUrl)}/health`, {
+            signal: AbortSignal.timeout(timeoutMs),
+          });
+          const body = await safeJson(response);
+          if (
+            !response.ok ||
+            !isRecord(body) ||
+            body.status !== "ok" ||
+            typeof body.version !== "string"
+          ) {
+            serverFailure = true;
+            checks.push(
+              doctorCheck("health", "fail", "Server health is unavailable or invalid.", {
+                httpStatus: response.status,
+              }),
+            );
+          } else {
+            healthPassed = true;
+            healthVersion = body.version;
+            checks.push(
+              doctorCheck("health", "pass", "Server health is OK.", {
+                serverVersion: healthVersion,
+              }),
+            );
+          }
+        } catch {
+          networkFailure = true;
+          checks.push(
+            doctorCheck("health", "fail", "Could not reach the Server before the timeout.", {}),
+          );
+        }
+      }
+
+      if (!healthPassed) {
+        checks.push(
+          skippedDoctorCheck("version", "Version comparison was skipped because health failed."),
+        );
+      } else if (healthVersion === CLI_VERSION) {
+        checks.push(
+          doctorCheck("version", "pass", "CLI and Server versions match.", {
+            serverVersion: healthVersion,
+          }),
+        );
+      } else {
+        checks.push(
+          doctorCheck("version", "warning", "CLI and Server versions differ.", {
+            serverVersion: healthVersion,
+          }),
+        );
+      }
+
+      let authenticated = false;
+      let connections: unknown[] | undefined;
+      if (!healthPassed || config === undefined) {
+        checks.push(
+          skippedDoctorCheck(
+            "authentication",
+            config === undefined
+              ? "Bearer authentication was skipped because no valid token is configured."
+              : "Bearer authentication was skipped because health failed.",
+          ),
+        );
+      } else {
+        try {
+          const response = await doctorRequest(fetcher, apiUrl, config, "/connections");
+          const body = await safeJson(response);
+          if (response.status === 401 || response.status === 403) {
+            authenticationInvalid = true;
+            checks.push(doctorCheck("authentication", "fail", "Bearer authentication failed.", {}));
+          } else if (!response.ok || !Array.isArray(body)) {
+            serverFailure = true;
+            checks.push(
+              doctorCheck(
+                "authentication",
+                "fail",
+                "The Server returned an invalid authentication probe response.",
+                { httpStatus: response.status },
+              ),
+            );
+          } else {
+            authenticated = true;
+            connections = body;
+            checks.push(
+              doctorCheck("authentication", "pass", "Bearer authentication succeeded.", {}),
+            );
+          }
+        } catch {
+          networkFailure = true;
+          checks.push(
+            doctorCheck(
+              "authentication",
+              "fail",
+              "Authentication could not be verified before the timeout.",
+              {},
+            ),
+          );
+        }
+      }
+
+      if (!authenticated || config === undefined) {
+        checks.push(
+          skippedDoctorCheck("runner", "Runner status was skipped because authentication failed."),
+        );
+        checks.push(
+          skippedDoctorCheck(
+            "connections",
+            "Connections summary was skipped because authentication failed.",
+          ),
+        );
+        checks.push(
+          skippedDoctorCheck(
+            "agent_profiles",
+            "Agent Profiles summary was skipped because authentication failed.",
+          ),
+        );
+      } else {
+        try {
+          const response = await doctorRequest(fetcher, apiUrl, config, "/system/runner");
+          const body = await safeJson(response);
+          if (
+            !response.ok ||
+            !isRecord(body) ||
+            !["online", "offline", "unknown"].includes(String(body.status))
+          ) {
+            serverFailure = true;
+            checks.push(
+              doctorCheck("runner", "fail", "The Server returned an invalid runner status.", {
+                httpStatus: response.status,
+              }),
+            );
+          } else {
+            const status = String(body.status);
+            checks.push(
+              doctorCheck(
+                "runner",
+                status === "online" ? "pass" : "warning",
+                status === "online" ? "Runner is online." : `Runner status is ${status}.`,
+                { status },
+              ),
+            );
+          }
+        } catch {
+          networkFailure = true;
+          checks.push(
+            doctorCheck(
+              "runner",
+              "fail",
+              "Runner status could not be read before the timeout.",
+              {},
+            ),
+          );
+        }
+
+        const connectionSummary = summarizeConnections(connections ?? []);
+        checks.push(
+          doctorCheck(
+            "connections",
+            connectionSummary.reauthorizationRequired > 0 ? "warning" : "pass",
+            connectionSummary.reauthorizationRequired > 0
+              ? "One or more Connections require reauthorization."
+              : "Connections do not require reauthorization.",
+            connectionSummary,
+          ),
+        );
+
+        try {
+          const response = await doctorRequest(fetcher, apiUrl, config, "/agent-profiles");
+          const body = await safeJson(response);
+          if (!response.ok || !Array.isArray(body)) {
+            serverFailure = true;
+            checks.push(
+              doctorCheck(
+                "agent_profiles",
+                "fail",
+                "The Server returned an invalid Agent Profiles response.",
+                { httpStatus: response.status },
+              ),
+            );
+          } else {
+            const summary = summarizeAgentProfiles(body);
+            const warning = summary.total === 0 || summary.disabled > 0;
+            checks.push(
+              doctorCheck(
+                "agent_profiles",
+                warning ? "warning" : "pass",
+                summary.total === 0
+                  ? "No Agent Profiles are configured."
+                  : summary.disabled > 0
+                    ? "One or more Agent Profiles are disabled."
+                    : "All Agent Profiles are enabled.",
+                summary,
+              ),
+            );
+          }
+        } catch {
+          networkFailure = true;
+          checks.push(
+            doctorCheck(
+              "agent_profiles",
+              "fail",
+              "Agent Profiles could not be read before the timeout.",
+              {},
+            ),
+          );
+        }
+      }
+
+      const result: DoctorResult = {
+        ok: checks.every((check) => check.status !== "fail"),
+        cliVersion: CLI_VERSION,
+        apiUrl: safeApiUrl(apiUrl),
+        checks,
+      };
+      if (json) io.stdout(`${JSON.stringify(result)}\n`);
+      else writeDoctorHuman(io, result);
+
+      const configurationFailed = checks[0]?.status === "fail";
+      const exitCode =
+        configurationFailed || authenticationInvalid
+          ? 3
+          : networkFailure
+            ? 7
+            : serverFailure
+              ? 6
+              : 0;
+      if (exitCode !== 0) throw new DoctorExit(exitCode);
+    });
+}
+
+function doctorCheck(
+  name: string,
+  status: DoctorStatus,
+  message: string,
+  details: Readonly<Record<string, unknown>>,
+): DoctorCheck {
+  return { name, status, message, details };
+}
+
+function skippedDoctorCheck(name: string, message: string): DoctorCheck {
+  return doctorCheck(name, "skipped", message, {});
+}
+
+function safeLocalMessage(error: unknown): string {
+  return error instanceof LocalCliError ? error.message : "Effective configuration is invalid.";
+}
+
+function doctorTimeout(environment: Environment): number {
+  const parsed = Number(environment.AIWS_HTTP_TIMEOUT_MS);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : 30_000;
+}
+
+async function doctorRequest(
+  fetcher: typeof globalThis.fetch,
+  apiUrl: string,
+  config: CliConfig,
+  path: string,
+): Promise<Response> {
+  return fetcher(`${apiBaseUrl(apiUrl)}${path}`, {
+    headers: { Authorization: `Bearer ${config.token}` },
+    signal: AbortSignal.timeout(config.httpTimeoutMs),
+  });
+}
+
+async function safeJson(response: Response): Promise<unknown> {
+  return response.json().catch(() => undefined);
+}
+
+function summarizeConnections(connections: readonly unknown[]): {
+  readonly total: number;
+  readonly byProvider: Readonly<Record<string, number>>;
+  readonly byStatus: Readonly<Record<string, number>>;
+  readonly reauthorizationRequired: number;
+} {
+  const byProvider: Record<string, number> = { github: 0, azure_devops: 0 };
+  const byStatus: Record<string, number> = {
+    active: 0,
+    reauthorization_required: 0,
+    revoked: 0,
+  };
+  for (const item of connections) {
+    if (!isRecord(item)) continue;
+    if (typeof item.provider === "string" && item.provider in byProvider) {
+      byProvider[item.provider] = (byProvider[item.provider] ?? 0) + 1;
+    }
+    if (typeof item.status === "string" && item.status in byStatus) {
+      byStatus[item.status] = (byStatus[item.status] ?? 0) + 1;
+    }
+  }
+  return {
+    total: connections.length,
+    byProvider,
+    byStatus,
+    reauthorizationRequired: byStatus.reauthorization_required ?? 0,
+  };
+}
+
+function summarizeAgentProfiles(profiles: readonly unknown[]): {
+  readonly total: number;
+  readonly enabled: number;
+  readonly disabled: number;
+} {
+  let enabled = 0;
+  let disabled = 0;
+  for (const item of profiles) {
+    if (isRecord(item) && item.enabled === true) enabled += 1;
+    else if (isRecord(item) && item.enabled === false) disabled += 1;
+  }
+  return { total: profiles.length, enabled, disabled };
+}
+
+function writeDoctorHuman(io: CliIo, result: DoctorResult): void {
+  io.stdout(`AIWS doctor ${result.ok ? "completed" : "found failures"}\n`);
+  io.stdout(`CLI ${result.cliVersion} · API ${result.apiUrl}\n`);
+  for (const check of result.checks) {
+    const details =
+      Object.keys(check.details).length === 0 ? "" : ` ${JSON.stringify(check.details)}`;
+    io.stdout(`[${check.status.toUpperCase()}] ${check.name}: ${check.message}${details}\n`);
+  }
+}
+
+function safeApiUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    if (url.username !== "" || url.password !== "") {
+      url.username = "";
+      url.password = "";
+    }
+    url.search = "";
+    url.hash = "";
+    return url.toString().replace(/\/$/u, "");
+  } catch {
+    return DEFAULT_API_URL;
+  }
 }
 
 function addConfigCommands(
@@ -160,6 +577,54 @@ function addConnectionCommands(
         await unwrap(
           client.GET("/connections/github/install", {
             params: { query: { returnTo: options.returnTo } },
+          }),
+        ),
+        config,
+      );
+    });
+  connection.command("azure-authorize").action(async () => {
+    const { config, client } = context();
+    emit(await unwrap(client.GET("/connections/azure-devops/authorize")), config);
+  });
+  connection
+    .command("azure-organizations")
+    .argument("<authorization-id>")
+    .action(async (authorizationId) => {
+      const { config, client } = context();
+      emit(
+        await unwrap(
+          client.GET("/connections/azure-devops/authorizations/{authorizationId}/organizations", {
+            params: { path: { authorizationId } },
+          }),
+        ),
+        config,
+      );
+    });
+  connection
+    .command("azure-complete")
+    .argument("<authorization-id>")
+    .requiredOption("--organization-id <organization-id>")
+    .action(async (authorizationId, options) => {
+      const { config, client } = context();
+      emit(
+        await unwrap(
+          client.POST("/connections/azure-devops/authorizations/{authorizationId}/complete", {
+            params: { path: { authorizationId } },
+            body: { organizationId: options.organizationId },
+          }),
+        ),
+        config,
+      );
+    });
+  connection
+    .command("reauthorize")
+    .argument("<connection-id>")
+    .action(async (connectionId) => {
+      const { config, client } = context();
+      emit(
+        await unwrap(
+          client.GET("/connections/{connectionId}/reauthorize", {
+            params: { path: { connectionId } },
           }),
         ),
         config,
@@ -388,6 +853,7 @@ export async function runCli(
       }
       return 2;
     }
+    if (error instanceof DoctorExit) return error.exitCode;
     const json = Boolean(program.opts().json);
     if (error instanceof PartialCliError) {
       if (json) {
@@ -518,15 +984,55 @@ function addProjectCommands(
     .option("--git-provider <provider>")
     .option("--account-scope <scope>")
     .option("--default-branch <branch>")
+    .addOption(new Option("--curation-agent-profile <id>").conflicts("clearCurationAgentProfile"))
+    .addOption(new Option("--clear-curation-agent-profile").conflicts("curationAgentProfile"))
+    .addOption(
+      new Option("--implementation-agent-profile <id>").conflicts(
+        "clearImplementationAgentProfile",
+      ),
+    )
+    .addOption(
+      new Option("--clear-implementation-agent-profile").conflicts("implementationAgentProfile"),
+    )
+    .addOption(new Option("--enable-automation").conflicts("disableAutomation"))
+    .addOption(new Option("--disable-automation").conflicts("enableAutomation"))
+    .addOption(new Option("--schedule-cron <expression>").conflicts("clearSchedule"))
+    .addOption(new Option("--clear-schedule").conflicts("scheduleCron"))
+    .option("--schedule-timezone <timezone>")
+    .option("--max-concurrency <number>", "maximum concurrent Runs (1..16)", boundedConcurrency)
     .action(async (projectId, options) => {
-      const body = compact({
-        name: options.name,
-        description: options.description,
-        repositoryPath: options.repositoryPath,
-        gitProvider: options.gitProvider,
-        accountScope: options.accountScope,
-        defaultBranch: options.defaultBranch,
-      });
+      const body = {
+        ...compact({
+          name: options.name,
+          description: options.description,
+          repositoryPath: options.repositoryPath,
+          gitProvider: options.gitProvider,
+          accountScope: options.accountScope,
+          defaultBranch: options.defaultBranch,
+          scheduleTimezone: options.scheduleTimezone,
+          maxConcurrency: options.maxConcurrency,
+        }),
+        ...(options.clearCurationAgentProfile
+          ? { curationAgentProfileId: null }
+          : options.curationAgentProfile === undefined
+            ? {}
+            : { curationAgentProfileId: options.curationAgentProfile }),
+        ...(options.clearImplementationAgentProfile
+          ? { implementationAgentProfileId: null }
+          : options.implementationAgentProfile === undefined
+            ? {}
+            : { implementationAgentProfileId: options.implementationAgentProfile }),
+        ...(options.enableAutomation
+          ? { automationEnabled: true }
+          : options.disableAutomation
+            ? { automationEnabled: false }
+            : {}),
+        ...(options.clearSchedule
+          ? { scheduleCron: null }
+          : options.scheduleCron === undefined
+            ? {}
+            : { scheduleCron: options.scheduleCron }),
+      };
       requireFields(body);
       const { config, client } = context();
       emit(
@@ -1199,6 +1705,12 @@ function positiveInteger(value: string): number {
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed <= 0)
     throw new InvalidArgumentError("must be a positive integer");
+  return parsed;
+}
+
+function boundedConcurrency(value: string): number {
+  const parsed = positiveInteger(value);
+  if (parsed > 16) throw new InvalidArgumentError("must be between 1 and 16");
   return parsed;
 }
 

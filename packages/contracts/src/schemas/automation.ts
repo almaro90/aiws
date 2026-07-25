@@ -4,6 +4,7 @@ const prefixedId = (prefix: string, label: string) =>
   z.string().regex(new RegExp(`^${prefix}[0-9A-HJKMNP-TV-Z]{26}$`, "u"), `Invalid ${label} ID.`);
 
 export const connectionIdSchema = prefixedId("con_", "Connection");
+export const azureAuthorizationIdSchema = prefixedId("azr_", "Azure authorization");
 export const agentProfileIdSchema = prefixedId("agp_", "Agent Profile");
 export const runIdSchema = prefixedId("run_", "Run");
 export const registerConnectionSchema = z.strictObject({
@@ -93,10 +94,13 @@ export const reconcileRunsSchema = z.strictObject({
   before: z.string().datetime({ offset: true, precision: 3 }),
 });
 export const importRepositorySchema = z.strictObject({
-  repositoryId: z.string().regex(/^\d+$/u).max(255),
+  repositoryId: z.string().trim().min(1).max(255),
   accountScope: z.enum(["personal", "work"]),
   name: z.string().trim().min(1).max(120).optional(),
   description: z.string().max(10_000).default(""),
+});
+export const completeAzureAuthorizationSchema = z.strictObject({
+  organizationId: z.string().trim().min(1).max(255),
 });
 export const createPullRequestSchema = z.strictObject({
   title: z.string().trim().min(1).max(256),

@@ -156,7 +156,7 @@ No toca datos de usuario.
 ```json
 {
   "status": "ok",
-  "version": "0.5.1"
+  "version": "0.6.0"
 }
 ```
 
@@ -165,7 +165,7 @@ Si SQLite no está disponible, 503:
 ```json
 {
   "status": "unhealthy",
-  "version": "0.5.1"
+  "version": "0.6.0"
 }
 ```
 
@@ -624,9 +624,23 @@ Draft → Curating señala `curationAgentProfileId` cuando falta o está deshabi
 
 ## 21. Ramas de referencia
 
-- `GET /projects/{projectId}/branches` devuelve `{ name, sha, protected }[]` desde GitHub.
+- `GET /projects/{projectId}/branches` devuelve `{ name, sha, protected }[]` desde el provider
+  gestionado; Azure puede devolver `protected=null`.
 - `PATCH /projects/{projectId}` acepta `defaultBranch`; debe existir remotamente.
 - `POST /tasks` acepta `baseBranch` opcional para Projects gestionados y rechaza el campo en
   Projects locales.
 - `Delivery` expone `baseBranch`. Es un snapshot; no existe endpoint para editarlo.
 - Publishing rechaza una base de PR distinta de `Delivery.baseBranch`.
+
+## 22. Azure DevOps Services
+
+- `GET /connections/azure-devops/authorize` inicia Entra OAuth con PKCE.
+- El callback público `GET /connections/azure-devops/callback` consume state/código una sola vez y
+  redirige a `/automation?azureAuthorizationId=...`.
+- `GET /connections/azure-devops/authorizations/{authorizationId}/organizations` devuelve el
+  snapshot temporal y `POST .../complete` selecciona exactamente una organización.
+- `GET /connections/{connectionId}/reauthorize` devuelve la URL correspondiente al provider.
+- `Connection` discrimina `github` con `installationId` y `azure_devops` con
+  `organizationId/organizationName`; el estado incluye `reauthorization_required`.
+- Repositorios, importación, ramas, credenciales system-only y pull requests mantienen endpoints
+  provider-neutral. `RemoteBranch.protected` admite null.

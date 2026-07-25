@@ -132,7 +132,9 @@ export interface ConnectionRow {
   readonly host: string;
   readonly external_account_id: string;
   readonly display_name: string;
-  readonly installation_id: string;
+  readonly installation_id: string | null;
+  readonly organization_id: string | null;
+  readonly organization_name: string | null;
   readonly status: string;
   readonly created_at: string;
   readonly updated_at: string;
@@ -207,17 +209,28 @@ export function projectFromRow(row: ProjectRow): Project {
 }
 
 export function connectionFromRow(row: ConnectionRow): Connection {
-  return {
+  const base = {
     id: row.id as ConnectionId,
-    provider: "github",
     host: row.host,
     externalAccountId: row.external_account_id,
     displayName: row.display_name,
-    installationId: row.installation_id,
     status: row.status as Connection["status"],
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+  if (row.provider === "azure_devops") {
+    if (row.organization_id === null || row.organization_name === null) {
+      throw new Error("Azure DevOps Connection row is incomplete.");
+    }
+    return {
+      ...base,
+      provider: "azure_devops",
+      organizationId: row.organization_id,
+      organizationName: row.organization_name,
+    };
+  }
+  if (row.installation_id === null) throw new Error("GitHub Connection row is incomplete.");
+  return { ...base, provider: "github", installationId: row.installation_id };
 }
 
 export function agentProfileFromRow(row: AgentProfileRow): AgentProfile {

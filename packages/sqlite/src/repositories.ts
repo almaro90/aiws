@@ -809,11 +809,40 @@ export class SqliteConnectionRepository implements ConnectionStore {
       .get(provider, host, installationId);
     return row === null ? null : connectionFromRow(row);
   }
+  async findByOrganization(
+    provider: "azure_devops",
+    host: string,
+    organizationId: string,
+  ): Promise<Connection | null> {
+    const row = this.database
+      .query<ConnectionRow, [string, string, string]>(
+        "SELECT * FROM connections WHERE provider = ? AND host = ? AND organization_id = ?",
+      )
+      .get(provider, host, organizationId);
+    return row === null ? null : connectionFromRow(row);
+  }
   async insert(connection: Connection): Promise<void> {
     this.database
-      .query<void, [string, string, string, string, string, string, string, string, string]>(
-        `INSERT INTO connections(id, provider, host, external_account_id, display_name, installation_id, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      .query<
+        void,
+        [
+          string,
+          string,
+          string,
+          string,
+          string,
+          string | null,
+          string | null,
+          string | null,
+          string,
+          string,
+          string,
+        ]
+      >(
+        `INSERT INTO connections(
+           id, provider, host, external_account_id, display_name, installation_id,
+           organization_id, organization_name, status, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         connection.id,
@@ -821,7 +850,9 @@ export class SqliteConnectionRepository implements ConnectionStore {
         connection.host,
         connection.externalAccountId,
         connection.displayName,
-        connection.installationId,
+        connection.provider === "github" ? connection.installationId : null,
+        connection.provider === "azure_devops" ? connection.organizationId : null,
+        connection.provider === "azure_devops" ? connection.organizationName : null,
         connection.status,
         connection.createdAt,
         connection.updatedAt,
@@ -829,10 +860,20 @@ export class SqliteConnectionRepository implements ConnectionStore {
   }
   async update(connection: Connection): Promise<void> {
     this.database
-      .query<void, [string, string, string]>(
-        "UPDATE connections SET status = ?, updated_at = ? WHERE id = ?",
+      .query<void, [string, string, string | null, string, string, string]>(
+        `UPDATE connections
+         SET external_account_id = ?, display_name = ?, organization_name = ?,
+             status = ?, updated_at = ?
+         WHERE id = ?`,
       )
-      .run(connection.status, connection.updatedAt, connection.id);
+      .run(
+        connection.externalAccountId,
+        connection.displayName,
+        connection.provider === "azure_devops" ? connection.organizationName : null,
+        connection.status,
+        connection.updatedAt,
+        connection.id,
+      );
   }
 }
 

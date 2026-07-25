@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { GitWorkspaceManager } from "../src/workspace.ts";
+import { GitWorkspaceManager, gitProcessInvocation } from "../src/workspace.ts";
 
 const directories: string[] = [];
 afterEach(async () => {
@@ -11,6 +11,28 @@ afterEach(async () => {
 });
 
 describe("Git workspace manager", () => {
+  test("keeps GitHub basic and Azure bearer secrets out of Git arguments", () => {
+    const githubSecret = "github-secret-value";
+    const github = gitProcessInvocation(
+      ["fetch", "https://github.com/acme/repo.git"],
+      { kind: "basic", username: "x-access-token", password: githubSecret },
+      "/tmp/askpass",
+    );
+    expect(github.command.join(" ")).not.toContain(githubSecret);
+    expect(github.env.AIWS_GIT_USERNAME).toBe("x-access-token");
+    expect(github.env.AIWS_GIT_PASSWORD).toBe(githubSecret);
+
+    const azureSecret = "azure-secret-value";
+    const azure = gitProcessInvocation(
+      ["fetch", "https://dev.azure.com/acme/project/_git/repo"],
+      { kind: "bearer", token: azureSecret },
+      "/tmp/askpass",
+    );
+    expect(azure.command).toContain("--config-env=http.extraHeader=AIWS_GIT_AUTH_HEADER");
+    expect(azure.command.join(" ")).not.toContain(azureSecret);
+    expect(azure.env.AIWS_GIT_AUTH_HEADER).toBe(`Authorization: Bearer ${azureSecret}`);
+  });
+
   test("creates an isolated worktree, commits, pushes and cleans it", async () => {
     const root = await mkdtemp(join(tmpdir(), "aiws-runner-test-"));
     directories.push(root);

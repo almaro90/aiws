@@ -32,11 +32,38 @@ describe("AIWS agent skill", () => {
     }
   });
 
+  test("covers Projects, import, Messages and managed Run guards without secrets", async () => {
+    const content = await Bun.file(skillPath).text();
+    for (const requirement of [
+      "connection list",
+      "connection repos",
+      "connection import",
+      "project create",
+      "task create",
+      "task message",
+      "--kind curation",
+      "--kind implementation",
+      "no reclamar ni modificar el repositorio",
+      "connection azure-organizations",
+      "connection azure-complete",
+      "--curation-agent-profile",
+      "--implementation-agent-profile",
+      "requiriendo navegador",
+      "private keys",
+      "client secrets",
+      "no modifica `userRequest`",
+    ]) {
+      expect(content).toContain(requirement);
+    }
+    expect(content).not.toContain("AIWS_GITHUB_PRIVATE_KEY_BASE64=");
+    expect(content).not.toContain("AIWS_AZURE_DEVOPS_CLIENT_SECRET=");
+  });
+
   test("documents installation for Codex, Hermes Agent and OpenClaw", async () => {
     const readme = await Bun.file(readmePath).text();
     expect(readme).toContain(`\${CODEX_HOME:-$HOME/.codex}/skills`);
     expect(readme).toContain("hermes skills install");
-    expect(readme).toContain("openclaw skills install /tmp/aiws-v0.5.1/skills/aiws-workflow");
-    expect(readme.match(/v0\.5\.1/gu)?.length ?? 0).toBeGreaterThanOrEqual(3);
+    expect(readme).toContain("openclaw skills install /tmp/aiws-v0.6.0/skills/aiws-workflow");
+    expect(readme.match(/v0\.6\.0/gu)?.length ?? 0).toBeGreaterThanOrEqual(3);
   });
 });

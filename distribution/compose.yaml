@@ -2,7 +2,7 @@ name: aiws
 
 services:
   aiws:
-    image: ${AIWS_IMAGE_NAMESPACE:?Set AIWS_IMAGE_NAMESPACE}/aiws:${AIWS_VERSION:-0.5.1}
+    image: ${AIWS_IMAGE_NAMESPACE:?Set AIWS_IMAGE_NAMESPACE}/aiws:${AIWS_VERSION:-0.6.0}
     restart: unless-stopped
     env_file: ${AIWS_ENV_FILE:-.env}
     environment:
@@ -33,12 +33,12 @@ services:
     networks: [runtime]
 
   runner-manager:
-    image: ${AIWS_IMAGE_NAMESPACE:?Set AIWS_IMAGE_NAMESPACE}/aiws-runner-manager:${AIWS_VERSION:-0.5.1}
+    image: ${AIWS_IMAGE_NAMESPACE:?Set AIWS_IMAGE_NAMESPACE}/aiws-runner-manager:${AIWS_VERSION:-0.6.0}
     restart: unless-stopped
     env_file: ${AIWS_ENV_FILE:-.env}
     environment:
       AIWS_API_URL: http://aiws:3000
-      AIWS_AGENT_IMAGE: ${AIWS_IMAGE_NAMESPACE:?Set AIWS_IMAGE_NAMESPACE}/aiws-agent:${AIWS_VERSION:-0.5.1}
+      AIWS_AGENT_IMAGE: ${AIWS_IMAGE_NAMESPACE:?Set AIWS_IMAGE_NAMESPACE}/aiws-agent:${AIWS_VERSION:-0.6.0}
       AIWS_DOCKER_NETWORK: ${AIWS_DOCKER_NETWORK:-aiws-runtime}
       AIWS_CREDENTIAL_PROXY_URL: http://runner-manager:4317/v1
     volumes:
@@ -51,7 +51,7 @@ services:
     networks: [runtime]
 
   agent-image:
-    image: ${AIWS_IMAGE_NAMESPACE:?Set AIWS_IMAGE_NAMESPACE}/aiws-agent:${AIWS_VERSION:-0.5.1}
+    image: ${AIWS_IMAGE_NAMESPACE:?Set AIWS_IMAGE_NAMESPACE}/aiws-agent:${AIWS_VERSION:-0.6.0}
     profiles: [images]
     command: ["true"]
 

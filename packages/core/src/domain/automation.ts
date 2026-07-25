@@ -10,27 +10,47 @@ import type {
 import { assertMaximum, assertNonBlank, throwIfIssues } from "./validation.ts";
 import type { ValidationIssue } from "../errors/domain-errors.ts";
 
-export type ConnectionStatus = "active" | "revoked";
+export type ConnectionStatus = "active" | "reauthorization_required" | "revoked";
 
-export interface Connection {
+interface ConnectionBase {
   readonly id: ConnectionId;
-  readonly provider: "github";
   readonly host: string;
   readonly externalAccountId: string;
   readonly displayName: string;
-  readonly installationId: string;
   readonly status: ConnectionStatus;
   readonly createdAt: string;
   readonly updatedAt: string;
 }
 
+export interface GitHubConnection extends ConnectionBase {
+  readonly provider: "github";
+  readonly installationId: string;
+}
+
+export interface AzureDevOpsConnection extends ConnectionBase {
+  readonly provider: "azure_devops";
+  readonly organizationId: string;
+  readonly organizationName: string;
+}
+
+export type Connection = GitHubConnection | AzureDevOpsConnection;
+
 export function createConnection(
-  input: Omit<Connection, "status" | "createdAt" | "updatedAt"> & { readonly now: string },
+  input:
+    | (Omit<GitHubConnection, "status" | "createdAt" | "updatedAt"> & { readonly now: string })
+    | (Omit<AzureDevOpsConnection, "status" | "createdAt" | "updatedAt"> & {
+        readonly now: string;
+      }),
 ): Connection {
   const issues: ValidationIssue[] = [];
   assertNonBlank(input.externalAccountId, "externalAccountId", 255, issues);
   assertNonBlank(input.displayName, "displayName", 255, issues);
-  assertNonBlank(input.installationId, "installationId", 255, issues);
+  if (input.provider === "github") {
+    assertNonBlank(input.installationId, "installationId", 255, issues);
+  } else {
+    assertNonBlank(input.organizationId, "organizationId", 255, issues);
+    assertNonBlank(input.organizationName, "organizationName", 255, issues);
+  }
   try {
     const url = new URL(input.host);
     if (url.protocol !== "https:" || url.pathname !== "/")
