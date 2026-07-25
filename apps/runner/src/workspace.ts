@@ -11,8 +11,13 @@ export type GitAuthentication =
   | { readonly kind: "basic"; readonly username: string; readonly password: string }
   | { readonly kind: "bearer"; readonly token: string };
 
+type AssignWorkspaceOwnership = (workspace: string) => Promise<void>;
+
 export class GitWorkspaceManager {
-  constructor(private readonly workspacesRoot: string) {}
+  constructor(
+    private readonly workspacesRoot: string,
+    private readonly assignWorkspaceOwnership: AssignWorkspaceOwnership = assignAgentOwnership,
+  ) {}
 
   async prepare(
     runId: string,
@@ -114,12 +119,7 @@ export class GitWorkspaceManager {
         authentication,
         askpass,
       );
-      const ownership = Bun.spawn(["chown", "-R", "1000:1000", workspace], {
-        stdout: "ignore",
-        stderr: "pipe",
-      });
-      if ((await ownership.exited) !== 0)
-        throw new Error("Could not assign workspace ownership to the agent user.");
+      await this.assignWorkspaceOwnership(workspace);
       const baseSha = (
         await git(["-C", workspace, "rev-parse", "HEAD"], authentication, askpass)
       ).trim();
@@ -220,6 +220,15 @@ export class GitWorkspaceManager {
       }).catch(() => undefined);
     await rm(runDirectory, { recursive: true, force: true });
   }
+}
+
+async function assignAgentOwnership(workspace: string): Promise<void> {
+  const ownership = Bun.spawn(["chown", "-R", "1000:1000", workspace], {
+    stdout: "ignore",
+    stderr: "pipe",
+  });
+  if ((await ownership.exited) !== 0)
+    throw new Error("Could not assign workspace ownership to the agent user.");
 }
 
 async function refExists(

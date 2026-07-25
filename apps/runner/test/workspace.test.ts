@@ -67,10 +67,14 @@ describe("Git workspace manager", () => {
       "initial",
     ]);
     await command(["git", "clone", "--quiet", "--bare", source, remote]);
-    const manager = new GitWorkspaceManager(workspaces);
+    const ownershipPaths: string[] = [];
+    const manager = new GitWorkspaceManager(workspaces, async (workspace) => {
+      ownershipPaths.push(workspace);
+    });
     const runId = `run_${"0".repeat(26)}`;
     const mirror = join(root, "mirror.git");
     const prepared = await manager.prepare(runId, mirror, remote, "", "main", `aiws/test/${runId}`);
+    expect(ownershipPaths).toEqual([prepared.path]);
     await writeFile(join(prepared.path, "change.txt"), "changed\n");
     const head = await manager.commitAndPush(prepared, `aiws/test/${runId}`, "", "aiws: test");
     expect(head).toHaveLength(40);
