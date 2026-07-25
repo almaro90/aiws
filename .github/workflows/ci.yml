@@ -38,7 +38,7 @@ jobs:
         run: bun run build
 
       - name: Install Playwright Chromium
-        run: bunx playwright install --with-deps chromium
+        run: bun run --cwd apps/web playwright install --with-deps chromium
 
       - name: Test Web UI
         run: bun run test:e2e
