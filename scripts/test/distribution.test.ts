@@ -67,6 +67,13 @@ describe("Hito 23 distribution contracts", () => {
     const workflow = await read(".github/workflows/release.yml");
     expect(workflow).toContain("bun run --cwd apps/web playwright install --with-deps chromium");
     expect(workflow).not.toContain("bunx playwright install --with-deps chromium");
+    expect(workflow).toContain("actions/upload-artifact@v7");
+    expect(workflow).toContain("actions/download-artifact@v8");
+    expect(workflow).toContain("pattern: cli-*");
+    expect(workflow).not.toContain("actions/upload-artifact@v4");
+    expect(workflow).not.toContain("actions/download-artifact@v4");
+    expect(workflow.match(/ref: \$\{\{ env\.RELEASE_TAG \}\}/g)).toHaveLength(4);
+    expect(workflow).toContain('"$(git rev-parse HEAD)"');
     for (const target of [
       "linux-x64",
       "linux-arm64",
