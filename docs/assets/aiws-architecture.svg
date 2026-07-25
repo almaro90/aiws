@@ -1,0 +1,160 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1040" width="1600" height="1040" role="img" aria-labelledby="architecture-title architecture-desc">
+  <title id="architecture-title">Arquitectura e infraestructura de AIWS</title>
+  <desc id="architecture-desc">Web, CLI y agentes externos usan la misma API Hono. Server compone Core con SQLite y almacenamiento local. El runner manager crea agentes aislados para Curation e Implementation sobre mirrors, workspaces y credenciales efímeras.</desc>
+  <defs>
+    <pattern id="architecture-grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" fill="none" stroke="#d4e0e8" stroke-width="1"/>
+    </pattern>
+    <filter id="architecture-shadow" x="-12%" y="-18%" width="124%" height="145%">
+      <feDropShadow dx="0" dy="9" stdDeviation="12" flood-color="#0f1c2e" flood-opacity=".08"/>
+    </filter>
+    <marker id="architecture-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M1 1 9 5 1 9z" fill="#15a9fe"/>
+    </marker>
+    <marker id="architecture-arrow-muted" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M1 1 9 5 1 9z" fill="#536577"/>
+    </marker>
+    <style>
+      .title{font:700 48px Oxanium,ui-sans-serif,system-ui,sans-serif;fill:#0f1c2e;letter-spacing:-1px}
+      .subtitle{font:500 20px Oxanium,ui-sans-serif,system-ui,sans-serif;fill:#536577}
+      .zone{font:700 14px Oxanium,ui-sans-serif,system-ui,sans-serif;letter-spacing:1.5px;fill:#0f4568}
+      .node{font:650 22px Oxanium,ui-sans-serif,system-ui,sans-serif;fill:#0f1c2e}
+      .node-inverse{font:650 22px Oxanium,ui-sans-serif,system-ui,sans-serif;fill:#fff}
+      .note{font:500 15px Oxanium,ui-sans-serif,system-ui,sans-serif;fill:#536577}
+      .note-inverse{font:500 15px Oxanium,ui-sans-serif,system-ui,sans-serif;fill:#c8d7e1}
+      .small{font:600 13px Oxanium,ui-sans-serif,system-ui,sans-serif;fill:#0f4568}
+      .flow{fill:none;stroke:#15a9fe;stroke-width:4;marker-end:url(#architecture-arrow)}
+      .control{fill:none;stroke:#536577;stroke-width:3;stroke-dasharray:9 9;marker-end:url(#architecture-arrow-muted)}
+    </style>
+  </defs>
+  <rect width="1600" height="1040" fill="#f7fafc"/>
+  <rect width="1600" height="1040" fill="url(#architecture-grid)" opacity=".43"/>
+  <rect x="0" y="0" width="12" height="1040" fill="#15a9fe"/>
+  <circle cx="1510" cy="70" r="180" fill="#ddf2ff" opacity=".8"/>
+  <text x="82" y="88" class="title">Una arquitectura, dos formas de operar</text>
+  <text x="82" y="128" class="subtitle">Clientes HTTP para el trabajo diario; runners aislados para la automatización gestionada.</text>
+
+  <rect x="52" y="176" width="290" height="760" fill="#f0f7fb" stroke="#d4e0e8" stroke-width="2"/>
+  <text x="78" y="210" class="zone">CLIENTES SIN PRIVILEGIOS</text>
+  <g filter="url(#architecture-shadow)">
+    <rect x="82" y="252" width="230" height="150" fill="#fff" stroke="#d4e0e8" stroke-width="2"/>
+    <rect x="82" y="438" width="230" height="150" fill="#fff" stroke="#d4e0e8" stroke-width="2"/>
+    <rect x="82" y="624" width="230" height="188" fill="#fff" stroke="#d4e0e8" stroke-width="2"/>
+  </g>
+  <g transform="translate(108 277)">
+    <rect width="62" height="45" fill="#ddf2ff" stroke="#15a9fe" stroke-width="3"/>
+    <path d="M20 57h22M31 45v12" stroke="#0f4568" stroke-width="3"/>
+    <text x="0" y="91" class="node">Web SPA</text><text x="0" y="116" class="note">React · sesión Web</text>
+  </g>
+  <g transform="translate(108 465)">
+    <path d="M0 0h66v48H0z" fill="#0f1c2e"/>
+    <path d="m13 14 10 10-10 10M31 34h20" fill="none" stroke="#15a9fe" stroke-width="3"/>
+    <text x="0" y="88" class="node">AIWS CLI</text><text x="0" y="113" class="note">HTTP JSON · Bearer</text>
+  </g>
+  <g transform="translate(108 650)">
+    <circle cx="30" cy="28" r="27" fill="#ddf2ff" stroke="#15a9fe" stroke-width="3"/>
+    <path d="M18 29h24M30 17v24" stroke="#0f4568" stroke-width="3"/>
+    <text x="0" y="83" class="node">Agentes externos</text>
+    <text x="0" y="108" class="note">Codex · Hermes</text>
+    <text x="0" y="131" class="note">OpenClaw · otros</text>
+    <text x="0" y="162" class="small">usan el CLI; no SQLite</text>
+  </g>
+
+  <rect x="382" y="176" width="528" height="760" fill="#fff" stroke="#15a9fe" stroke-width="3"/>
+  <text x="410" y="210" class="zone">SERVER · COMPOSITION ROOT</text>
+  <g filter="url(#architecture-shadow)">
+    <rect x="430" y="252" width="432" height="112" fill="#0f1c2e" stroke="#0f1c2e" stroke-width="2"/>
+    <rect x="430" y="410" width="432" height="196" fill="#ddf2ff" stroke="#15a9fe" stroke-width="3"/>
+    <rect x="430" y="652" width="196" height="192" fill="#fff" stroke="#d4e0e8" stroke-width="2"/>
+    <rect x="666" y="652" width="196" height="192" fill="#fff" stroke="#d4e0e8" stroke-width="2"/>
+  </g>
+  <g transform="translate(462 281)">
+    <path d="M0 0h50v50H0z" fill="none" stroke="#15a9fe" stroke-width="3"/>
+    <path d="M11 17h28M11 28h28M11 39h18" stroke="#15a9fe" stroke-width="3"/>
+    <text x="78" y="23" class="node-inverse">Hono API · /api/v1</text>
+    <text x="78" y="48" class="note-inverse">Zod · Auth · OpenAPI 3.1</text>
+  </g>
+  <g transform="translate(462 441)">
+    <circle cx="38" cy="38" r="36" fill="#15a9fe"/>
+    <path d="M19 38h38M38 19v38" stroke="#0f1c2e" stroke-width="4"/>
+    <text x="96" y="34" class="node">Core</text>
+    <text x="96" y="61" class="note">Dominio · casos de uso · ports</text>
+    <text x="0" y="117" class="small">versionado · invariantes · transacciones</text>
+    <text x="0" y="143" class="small">sin Hono, SQLite, React ni filesystem</text>
+  </g>
+  <g transform="translate(458 684)">
+    <path d="M0 16h58v45H0zM8 9h42v7H8z" fill="#eff4f7" stroke="#536577" stroke-width="3"/>
+    <path d="M12 31h34M12 43h34" stroke="#536577" stroke-width="2"/>
+    <text x="0" y="100" class="node">SQLite</text>
+    <text x="0" y="127" class="note">WAL · migraciones</text>
+    <text x="0" y="150" class="note">TaskEvents</text>
+  </g>
+  <g transform="translate(694 684)">
+    <path d="M0 16h64v46H0z" fill="#eff4f7" stroke="#536577" stroke-width="3"/>
+    <path d="M0 16h25l8-10h31v10" fill="#ddf2ff" stroke="#536577" stroke-width="3"/>
+    <text x="0" y="100" class="node">Storage</text>
+    <text x="0" y="127" class="note">Attachments</text>
+    <text x="0" y="150" class="note">logs locales</text>
+  </g>
+
+  <rect x="950" y="176" width="598" height="760" fill="#f0f7fb" stroke="#d4e0e8" stroke-width="2"/>
+  <text x="978" y="210" class="zone">AUTOMATIZACIÓN GESTIONADA</text>
+  <g filter="url(#architecture-shadow)">
+    <rect x="998" y="252" width="502" height="112" fill="#0f1c2e" stroke="#0f1c2e" stroke-width="2"/>
+    <rect x="998" y="414" width="230" height="182" fill="#fff" stroke="#15a9fe" stroke-width="3"/>
+    <rect x="1270" y="414" width="230" height="182" fill="#fff" stroke="#15a9fe" stroke-width="3"/>
+    <rect x="998" y="648" width="230" height="194" fill="#fff" stroke="#d4e0e8" stroke-width="2"/>
+    <rect x="1270" y="648" width="230" height="194" fill="#fff" stroke="#d4e0e8" stroke-width="2"/>
+  </g>
+  <g transform="translate(1028 280)">
+    <path d="M0 9h56v42H0z" fill="none" stroke="#15a9fe" stroke-width="3"/>
+    <path d="M12 0v18M44 0v18M12 42v18M44 42v18" stroke="#15a9fe" stroke-width="3"/>
+    <text x="82" y="23" class="node-inverse">Runner manager</text>
+    <text x="82" y="49" class="note-inverse">claims · aislamiento · capacidades efímeras</text>
+  </g>
+  <g transform="translate(1026 442)">
+    <circle cx="32" cy="30" r="29" fill="#ddf2ff" stroke="#15a9fe" stroke-width="3"/>
+    <path d="m17 31 10 10 20-23" fill="none" stroke="#0f4568" stroke-width="4"/>
+    <text x="0" y="96" class="node">Curation runner</text>
+    <text x="0" y="122" class="note">repo + adjuntos RO</text>
+    <text x="0" y="146" class="note">salida JSON validada</text>
+  </g>
+  <g transform="translate(1298 442)">
+    <path d="M0 0h60v60H0z" fill="#ddf2ff" stroke="#15a9fe" stroke-width="3"/>
+    <path d="m13 35 12-12 10 10 14-17" fill="none" stroke="#0f4568" stroke-width="4"/>
+    <text x="0" y="96" class="node">Implementation</text>
+    <text x="0" y="122" class="note">worktree RW · Codex</text>
+    <text x="0" y="146" class="note">commit · push · draft PR</text>
+  </g>
+  <g transform="translate(1026 678)">
+    <path d="M0 18h68v48H0z" fill="#eff4f7" stroke="#536577" stroke-width="3"/>
+    <path d="M0 18h28l9-11h31v11" fill="#ddf2ff" stroke="#536577" stroke-width="3"/>
+    <text x="0" y="104" class="node">Git local</text>
+    <text x="0" y="131" class="note">mirrors persistentes</text>
+    <text x="0" y="155" class="note">worktrees efímeros</text>
+  </g>
+  <g transform="translate(1298 678)">
+    <path d="M0 2h64v64H0z" fill="#eff4f7" stroke="#536577" stroke-width="3"/>
+    <path d="M12 18h40M12 32h40M12 46h26" stroke="#536577" stroke-width="3"/>
+    <text x="0" y="104" class="node">Git provider</text>
+    <text x="0" y="131" class="note">GitHub App</text>
+    <text x="0" y="155" class="note">Azure DevOps OAuth</text>
+  </g>
+
+  <path d="M312 327h108" class="flow"/>
+  <path d="M312 513h48V327h60" class="flow"/>
+  <path d="M312 718h48V327h60" class="flow"/>
+  <text x="366" y="302" text-anchor="middle" class="small">HTTPS</text>
+  <path d="M646 364v36" class="flow"/>
+  <path d="M548 606v36" class="flow"/>
+  <path d="M744 606v36" class="flow"/>
+  <path d="M862 308h126" class="control"/>
+  <text x="925" y="285" text-anchor="middle" class="small">control + resultados</text>
+  <path d="M1113 364v40" class="flow"/>
+  <path d="M1385 364v40" class="flow"/>
+  <path d="M1113 596v42" class="flow"/>
+  <path d="M1385 596v42" class="flow"/>
+
+  <rect x="382" y="965" width="1166" height="42" fill="#0f1c2e"/>
+  <text x="965" y="992" text-anchor="middle" class="small" style="fill:#fff;letter-spacing:1px">LOS AGENTES AISLADOS NO RECIBEN SQLITE, TOKEN AIWS NI SECRETOS PERMANENTES</text>
+</svg>

@@ -42,6 +42,15 @@ Las líneas continuas representan decisiones explícitas; las discontinuas, camb
 
 Una **Task** conserva la identidad y el hilo completo de trabajo. Cada petición inicial o cambio posterior recorre un **Cycle** propio. Los **Messages** son entradas inmutables de la persona, las **Spec Revisions** y respuestas conservan snapshots append-only, y una **Delivery** representa la rama y PR que pueden agrupar varios Cycles. Consulta [ADR 0002 — separación Task/Cycle/Delivery](./docs/adr/0002-separate-task-cycle-delivery.md) para las decisiones del modelo.
 
+## Arquitectura e infraestructura
+
+![Arquitectura de AIWS: Web, CLI y agentes externos usan Hono API; Server compone Core, SQLite y almacenamiento local; runner-manager crea runners aislados de Curation e Implementation sobre mirrors y worktrees](./docs/assets/aiws-architecture.svg)
+
+Web, CLI y agentes externos son clientes HTTP sin acceso directo a Core, SQLite o los ficheros de
+datos. Server es el composition root. La automatización gestionada se ejecuta en contenedores
+aislados: Curation recibe repositorio y adjuntos de solo lectura; Implementation trabaja sobre un
+worktree efímero y publica mediante credenciales de vida corta.
+
 ## Instalación publicada
 
 AIWS y su CLI tienen ciclos independientes. Para instalar el stack sin Bun ni checkout, descargar
