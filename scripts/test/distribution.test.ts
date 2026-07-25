@@ -65,6 +65,8 @@ describe("Hito 23 distribution contracts", () => {
 
   test("release publishes the full platform and OCI matrix with provenance", async () => {
     const workflow = await read(".github/workflows/release.yml");
+    expect(workflow).toContain("bun run --cwd apps/web playwright install --with-deps chromium");
+    expect(workflow).not.toContain("bunx playwright install --with-deps chromium");
     for (const target of [
       "linux-x64",
       "linux-arm64",

@@ -36,7 +36,7 @@ jobs:
       - run: bun test
       - run: bun run contract:check
       - run: bun run build
-      - run: bunx playwright install --with-deps chromium
+      - run: bun run --cwd apps/web playwright install --with-deps chromium
       - run: bun run test:e2e
       - run: bun run smoke:local
       - run: bun run smoke
