@@ -243,15 +243,6 @@ try {
   console.log(
     "Hito 10 acceptance passed (CLI JSON, questions, concurrency, activity, archives, persistence, files).",
   );
-} catch (error) {
-  const message = error instanceof Error ? (error.stack ?? error.message) : String(error);
-  console.error(
-    `::error title=DEBUG-ci-docker-smoke::${message
-      .replaceAll("%", "%25")
-      .replaceAll("\r", "%0D")
-      .replaceAll("\n", "%0A")}`,
-  );
-  throw error;
 } finally {
   await runResult(["docker", "rm", "--force", container]);
   await runResult(["docker", "volume", "rm", "--force", volume]);

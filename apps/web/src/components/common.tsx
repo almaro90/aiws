@@ -280,14 +280,14 @@ export function PageBreadcrumb({
   readonly current: string;
 }) {
   return (
-    <Breadcrumb>
-      <BreadcrumbList>
+    <Breadcrumb className="min-w-0 max-w-full overflow-hidden">
+      <BreadcrumbList className="min-w-0 max-w-full">
         <BreadcrumbItem>
           <BreadcrumbLink render={<Link to={parent.to} />}>{parent.label}</BreadcrumbLink>
         </BreadcrumbItem>
         <BreadcrumbSeparator />
         <BreadcrumbItem className="min-w-0">
-          <BreadcrumbPage className="max-w-[min(32rem,70vw)] truncate" title={current}>
+          <BreadcrumbPage className="min-w-0 max-w-full truncate" title={current}>
             {current}
           </BreadcrumbPage>
         </BreadcrumbItem>

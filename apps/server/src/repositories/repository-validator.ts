@@ -24,10 +24,21 @@ export class RepositoryValidator {
       return invalid("Repository path is outside the allowed roots.");
     }
 
-    const process = Bun.spawn(["git", "-C", canonical, "rev-parse", "--is-inside-work-tree"], {
-      stdout: "pipe",
-      stderr: "ignore",
-    });
+    const process = Bun.spawn(
+      [
+        "git",
+        "-c",
+        `safe.directory=${canonical}`,
+        "-C",
+        canonical,
+        "rev-parse",
+        "--is-inside-work-tree",
+      ],
+      {
+        stdout: "pipe",
+        stderr: "ignore",
+      },
+    );
     const output = await new Response(process.stdout).text();
     if ((await process.exited) !== 0 || output.trim() !== "true") {
       return invalid("Repository path is not a Git worktree.");
