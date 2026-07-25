@@ -1559,11 +1559,14 @@ for (const viewport of [
         });
       }
       await expect(page.locator("main")).toBeVisible();
-      expect(
-        await page.evaluate(
-          () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
-        ),
-      ).toBe(false);
+      await page.evaluate(() => document.fonts.ready);
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+          ),
+        )
+        .toBe(false);
     }
   });
 }
