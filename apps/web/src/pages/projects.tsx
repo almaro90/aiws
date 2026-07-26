@@ -3,6 +3,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import {
   ArchiveIcon,
   ArrowRightIcon,
+  CircleAlertIcon,
   CircleCheckIcon,
   CircleXIcon,
   PlusIcon,
@@ -27,8 +28,9 @@ import {
   buttonVariants,
 } from "../components/common.tsx";
 import { Badge } from "../components/ui/badge.tsx";
+import { Alert, AlertDescription, AlertTitle } from "../components/ui/alert.tsx";
 import { Button } from "../components/ui/button.tsx";
-import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card.tsx";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "../components/ui/card.tsx";
 import { Checkbox } from "../components/ui/checkbox.tsx";
 import { Combobox } from "../components/ui/combobox.tsx";
 import {
@@ -254,9 +256,11 @@ export function ProjectsPage({ search }: { readonly search: Record<string, unkno
 
 function ProjectAutomation({
   project,
+  sectionId,
   onDirtyChange,
 }: {
   readonly project: Project;
+  readonly sectionId: string;
   readonly onDirtyChange: (dirty: boolean) => void;
 }) {
   const client = useQueryClient();
@@ -310,6 +314,15 @@ function ProjectAutomation({
     Number(maxConcurrency) <= 16
       ? null
       : "La concurrencia debe ser un entero entre 1 y 16.";
+  const blockers = projectConfigurationBlockers({
+    localError,
+    automationEnabled,
+    implementationAgentProfileId,
+    managed: project.repositoryMode === "managed",
+    branchesLoading: branches.isLoading,
+    branchesError: branches.isError,
+    defaultBranch,
+  });
   const save = useMutation({
     mutationFn: () =>
       api.updateProject(project.id, {
@@ -334,7 +347,11 @@ function ProjectAutomation({
     if (save.error) focusFirstInvalid();
   }, [save.error]);
   return (
-    <section className="grid gap-4" aria-labelledby={`configuration-${project.id}`}>
+    <section
+      id={sectionId}
+      className="grid scroll-mt-4 gap-4"
+      aria-labelledby={`configuration-${project.id}`}
+    >
       <div className="flex flex-wrap items-center gap-3">
         <h2 id={`configuration-${project.id}`} className="text-xl font-semibold">
           Configuración
@@ -343,7 +360,7 @@ function ProjectAutomation({
       </div>
       <Card>
         <CardHeader>
-          <CardTitle>Curation</CardTitle>
+          <CardTitle as="h3">Curation</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4">
           <p className="text-sm text-muted-foreground">
@@ -441,7 +458,7 @@ function ProjectAutomation({
       </Card>
       <Card>
         <CardHeader>
-          <CardTitle>Implementation e infraestructura</CardTitle>
+          <CardTitle as="h3">Implementation e infraestructura</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4">
           <Field orientation="horizontal">
@@ -532,15 +549,24 @@ function ProjectAutomation({
             </Field>
           </div>
           {save.isError ? <ErrorNotice error={save.error} /> : null}
+          {dirty && blockers.length > 0 ? (
+            <Alert id={`configuration-blockers-${project.id}`}>
+              <CircleAlertIcon />
+              <AlertTitle>No se puede guardar la configuración</AlertTitle>
+              <AlertDescription>
+                <ul className="list-disc space-y-1 pl-5">
+                  {blockers.map((blocker) => (
+                    <li key={blocker}>{blocker}</li>
+                  ))}
+                </ul>
+              </AlertDescription>
+            </Alert>
+          ) : null}
           <Button
             className="justify-self-start"
-            disabled={
-              !dirty ||
-              save.isPending ||
-              Boolean(localError) ||
-              (automationEnabled && implementationAgentProfileId === "none") ||
-              (project.repositoryMode === "managed" &&
-                (branches.isLoading || branches.isError || !defaultBranch))
+            disabled={!dirty || save.isPending || blockers.length > 0}
+            aria-describedby={
+              dirty && blockers.length > 0 ? `configuration-blockers-${project.id}` : undefined
             }
             onClick={() => save.mutate()}
           >
@@ -550,6 +576,32 @@ function ProjectAutomation({
       </Card>
     </section>
   );
+}
+
+interface ProjectConfigurationBlockerInput {
+  readonly localError: string | null;
+  readonly automationEnabled: boolean;
+  readonly implementationAgentProfileId: string;
+  readonly managed: boolean;
+  readonly branchesLoading: boolean;
+  readonly branchesError: boolean;
+  readonly defaultBranch: string;
+}
+
+export function projectConfigurationBlockers(input: ProjectConfigurationBlockerInput): string[] {
+  const blockers: string[] = [];
+  if (input.managed && input.branchesLoading) {
+    blockers.push("Espera a que se carguen las ramas.");
+  } else if (input.managed && input.branchesError) {
+    blockers.push("Vuelve a cargar las ramas antes de guardar.");
+  } else if (input.managed && input.defaultBranch.trim() === "") {
+    blockers.push("Selecciona una Base Branch.");
+  }
+  if (input.automationEnabled && input.implementationAgentProfileId === "none") {
+    blockers.push("Selecciona un Perfil de Implementation para activar Implementation.");
+  }
+  if (input.localError) blockers.push(input.localError);
+  return blockers;
 }
 
 function ProjectList({ projects }: { readonly projects: readonly Project[] }) {
@@ -682,6 +734,54 @@ export function ProjectFormPage() {
   );
 }
 
+function ProjectSectionNav({
+  repositoryId,
+  repositoryDirty,
+  configurationId,
+  configurationDirty,
+  verificationId,
+  verificationDirty,
+  readinessId,
+  tasksId,
+}: {
+  readonly repositoryId: string;
+  readonly repositoryDirty: boolean;
+  readonly configurationId: string;
+  readonly configurationDirty: boolean;
+  readonly verificationId: string;
+  readonly verificationDirty: boolean;
+  readonly readinessId: string;
+  readonly tasksId: string;
+}) {
+  const sections = [
+    { id: repositoryId, label: "Repositorio", dirty: repositoryDirty },
+    { id: configurationId, label: "Configuración", dirty: configurationDirty },
+    { id: verificationId, label: "Verificación", dirty: verificationDirty },
+    { id: readinessId, label: "Comprobación", dirty: false },
+    { id: tasksId, label: "Tasks", dirty: false },
+  ];
+  return (
+    <nav
+      className="overflow-x-auto border-y bg-muted/30 px-3 py-2"
+      aria-label="Secciones del Project"
+    >
+      <ul className="flex min-w-max items-center gap-2">
+        {sections.map((section) => (
+          <li key={section.id}>
+            <a
+              className="inline-flex h-8 items-center gap-2 px-2 text-sm font-medium text-muted-foreground hover:bg-background hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2"
+              href={`#${section.id}`}
+            >
+              {section.label}
+              {section.dirty ? <Badge variant="outline">Modificado</Badge> : null}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  );
+}
+
 export function ProjectDetailPage({ projectId }: { readonly projectId: string }) {
   const tasksTitleId = useId();
   const [repositoryDirty, setRepositoryDirty] = useState(false);
@@ -720,18 +820,32 @@ export function ProjectDetailPage({ projectId }: { readonly projectId: string })
   if (query.isError) return <ErrorNotice error={query.error} retry={() => void query.refetch()} />;
   if (query.data === undefined) return <Loading label="Cargando Project" />;
   const project = query.data;
+  const repositorySectionId = `project-repository-${project.id}`;
+  const configurationSectionId = `project-configuration-${project.id}`;
+  const verificationSectionId = `project-verification-${project.id}`;
+  const readinessSectionId = `project-readiness-${project.id}`;
+  const tasksSectionId = `project-tasks-${project.id}`;
   return (
     <>
       <PageBreadcrumb parent={{ to: "/projects", label: "Projects" }} current={project.name} />
       <PageHeader
         title={project.name}
         description="Inventario, Curation e Implementation del Project."
-        actions={
-          <UnsavedChangesBadge dirty={repositoryDirty || configurationDirty || verificationDirty} />
-        }
+      />
+      <ProjectSectionNav
+        repositoryId={repositorySectionId}
+        repositoryDirty={repositoryDirty}
+        configurationId={configurationSectionId}
+        configurationDirty={configurationDirty}
+        verificationId={verificationSectionId}
+        verificationDirty={verificationDirty}
+        readinessId={readinessSectionId}
+        tasksId={tasksSectionId}
       />
       <ProjectForm
         title="Repositorio"
+        headingLevel={2}
+        sectionId={repositorySectionId}
         description={
           project.archivedAt
             ? "Project archivado: solo puede restaurarse."
@@ -777,9 +891,17 @@ export function ProjectDetailPage({ projectId }: { readonly projectId: string })
           )}
         </CardContent>
       </Card>
-      <ProjectAutomation project={project} onDirtyChange={setConfigurationDirty} />
-      <ProjectVerificationContract project={project} onDirtyChange={setVerificationDirty} />
-      <ProjectReadiness project={project} />
+      <ProjectAutomation
+        project={project}
+        sectionId={configurationSectionId}
+        onDirtyChange={setConfigurationDirty}
+      />
+      <ProjectVerificationContract
+        project={project}
+        sectionId={verificationSectionId}
+        onDirtyChange={setVerificationDirty}
+      />
+      <ProjectReadiness project={project} sectionId={readinessSectionId} />
       {archive.isError ? (
         <>
           <ErrorNotice error={archive.error} />
@@ -792,7 +914,11 @@ export function ProjectDetailPage({ projectId }: { readonly projectId: string })
           </Link>
         </>
       ) : null}
-      <section className="grid gap-3" aria-labelledby={tasksTitleId}>
+      <section
+        id={tasksSectionId}
+        className="grid scroll-mt-4 gap-3"
+        aria-labelledby={tasksTitleId}
+      >
         <div className="flex items-center justify-between">
           <h2 id={tasksTitleId} className="text-xl font-semibold">
             Tasks del Project
@@ -840,7 +966,9 @@ export function ProjectDetailPage({ projectId }: { readonly projectId: string })
             ) : null}
           </div>
         ) : (
-          <Empty title="Sin Tasks">Este Project todavía no tiene Tasks activas.</Empty>
+          <Empty title="Sin Tasks" headingLevel={3}>
+            Este Project todavía no tiene Tasks activas.
+          </Empty>
         )}
       </section>
       <UnsavedChangesGuard dirty={repositoryDirty || configurationDirty || verificationDirty} />
@@ -850,9 +978,11 @@ export function ProjectDetailPage({ projectId }: { readonly projectId: string })
 
 function ProjectVerificationContract({
   project,
+  sectionId,
   onDirtyChange,
 }: {
   readonly project: Project;
+  readonly sectionId: string;
   readonly onDirtyChange: (dirty: boolean) => void;
 }) {
   const client = useQueryClient();
@@ -916,9 +1046,12 @@ function ProjectVerificationContract({
     return <ErrorNotice error={state.error} retry={() => void state.refetch()} />;
   }
   return (
-    <Card size="sm">
+    <Card id={sectionId} className="scroll-mt-4" size="sm">
       <CardHeader>
         <CardTitle>Verification Contract</CardTitle>
+        <CardAction>
+          <UnsavedChangesBadge dirty={edited} />
+        </CardAction>
       </CardHeader>
       <CardContent className="grid gap-4">
         <div className="flex flex-wrap items-center gap-2">
@@ -977,35 +1110,46 @@ function ProjectVerificationContract({
         </div>
         {replace.isError ? <ErrorNotice error={replace.error} /> : null}
         {disable.isError ? <ErrorNotice error={disable.error} /> : null}
-        <div className="grid gap-2">
-          <strong className="text-sm">Historial</strong>
-          {history.isError ? (
-            <ErrorNotice error={history.error} retry={() => void history.refetch()} />
-          ) : history.data?.length ? (
-            <div className="grid gap-2">
-              {history.data.map((revision) => (
-                <div
-                  key={revision.revision}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3 text-sm"
-                >
-                  <span>
-                    Revision {revision.revision} ·{" "}
-                    {revision.enabled ? `${revision.commands.length} comandos` : "desactivada"}
-                  </span>
-                  <span className="text-muted-foreground">{formatDate(revision.createdAt)}</span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">Todavía no hay revisiones.</p>
-          )}
-        </div>
+        <details className="group rounded-lg border bg-muted/20">
+          <summary className="cursor-pointer list-none px-3 py-2 text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2">
+            Historial de revisiones
+            {history.data ? ` (${history.data.length})` : ""}
+          </summary>
+          <div className="grid gap-2 border-t p-3">
+            {history.isError ? (
+              <ErrorNotice error={history.error} retry={() => void history.refetch()} />
+            ) : history.data?.length ? (
+              <div className="grid gap-2">
+                {history.data.map((revision) => (
+                  <div
+                    key={revision.revision}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3 text-sm"
+                  >
+                    <span>
+                      Revision {revision.revision} ·{" "}
+                      {revision.enabled ? `${revision.commands.length} comandos` : "desactivada"}
+                    </span>
+                    <span className="text-muted-foreground">{formatDate(revision.createdAt)}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">Todavía no hay revisiones.</p>
+            )}
+          </div>
+        </details>
       </CardContent>
     </Card>
   );
 }
 
-function ProjectReadiness({ project }: { readonly project: Project }) {
+function ProjectReadiness({
+  project,
+  sectionId,
+}: {
+  readonly project: Project;
+  readonly sectionId: string;
+}) {
   const [report, setReport] = useState<ProjectReadinessReport | null>(null);
   const check = useMutation({
     mutationFn: (depth: "standard" | "deep") => api.projectReadiness(project.id, depth),
@@ -1018,7 +1162,7 @@ function ProjectReadiness({ project }: { readonly project: Project }) {
   });
   const disabled = project.repositoryMode !== "managed" || project.archivedAt !== null;
   return (
-    <Card size="sm">
+    <Card id={sectionId} className="scroll-mt-4" size="sm">
       <CardHeader>
         <CardTitle>Comprobar Project</CardTitle>
       </CardHeader>
@@ -1124,6 +1268,8 @@ function scopeLabel(value: string): string {
 
 function ProjectForm({
   title,
+  headingLevel = 1,
+  sectionId,
   description,
   submitLabel,
   project,
@@ -1135,6 +1281,8 @@ function ProjectForm({
   onSubmit,
 }: {
   readonly title: string;
+  readonly headingLevel?: 1 | 2;
+  readonly sectionId?: string;
   readonly description: string;
   readonly submitLabel: string;
   readonly project?: Project;
@@ -1172,11 +1320,14 @@ function ProjectForm({
   }, [error]);
   return (
     <>
-      <Card>
+      <Card id={sectionId} className={sectionId ? "scroll-mt-4" : undefined}>
         <CardHeader>
-          <CardTitle>
-            <PageHeader title={title} description={description} />
-          </CardTitle>
+          <PageHeader
+            title={title}
+            description={description}
+            headingLevel={headingLevel}
+            actions={<UnsavedChangesBadge dirty={isDirty} />}
+          />
         </CardHeader>
         <CardContent>
           <form className="grid gap-5" onSubmit={handleSubmit(onSubmit)}>

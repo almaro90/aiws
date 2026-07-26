@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { ErrorNotice, StatusBadge } from "../src/components/common.tsx";
+import { ErrorNotice, PageHeader, StatusBadge } from "../src/components/common.tsx";
+import { CardTitle } from "../src/components/ui/card.tsx";
 import { filterComboboxOptions } from "../src/components/ui/combobox.tsx";
+import { EmptyTitle } from "../src/components/ui/empty.tsx";
 import { Select, SelectTrigger, SelectValue } from "../src/components/ui/select.tsx";
 import { ApiError, apiFieldMessage, mapApiError, unauthorizedRedirect } from "../src/lib/api.ts";
 import { preserveConflict } from "../src/lib/conflict.ts";
@@ -30,7 +32,8 @@ import {
 import type { Question, Run, Task, TimelineItem } from "../src/lib/types.ts";
 import { retryUploadEntries } from "../src/lib/upload-queue.tsx";
 import { classifyLoginError, safeRedirect } from "../src/pages/login.tsx";
-import { formatRunLogs } from "../src/pages/task-detail.tsx";
+import { projectConfigurationBlockers } from "../src/pages/projects.tsx";
+import { formatRunLogs, readyBlockerMessage } from "../src/pages/task-detail.tsx";
 import { validateFiles } from "../src/pages/tasks.tsx";
 
 describe("Select", () => {
@@ -135,7 +138,70 @@ describe("Status presentation", () => {
   });
 });
 
+describe("Semantic headings", () => {
+  test("renders page, card and empty-state titles at their requested levels", () => {
+    expect(renderToStaticMarkup(createElement(PageHeader, { title: "Page" }))).toContain("<h1");
+    expect(
+      renderToStaticMarkup(createElement(PageHeader, { title: "Section", headingLevel: 2 })),
+    ).toContain("<h2");
+    expect(renderToStaticMarkup(createElement(CardTitle, null, "Card"))).toContain("<h2");
+    expect(renderToStaticMarkup(createElement(CardTitle, { as: "h3" }, "Nested"))).toContain("<h3");
+    expect(renderToStaticMarkup(createElement(EmptyTitle, { as: "h1" }, "Missing"))).toContain(
+      "<h1",
+    );
+  });
+});
+
+describe("Project Detail configuration", () => {
+  test("explains every real prerequisite that blocks configuration saving", () => {
+    const valid = {
+      localError: null,
+      automationEnabled: false,
+      implementationAgentProfileId: "none",
+      managed: false,
+      branchesLoading: false,
+      branchesError: false,
+      defaultBranch: "",
+    };
+
+    expect(projectConfigurationBlockers(valid)).toEqual([]);
+    expect(
+      projectConfigurationBlockers({
+        ...valid,
+        automationEnabled: true,
+        managed: true,
+        defaultBranch: "",
+        localError: "La concurrencia debe ser un entero entre 1 y 16.",
+      }),
+    ).toEqual([
+      "Selecciona una Base Branch.",
+      "Selecciona un Perfil de Implementation para activar Implementation.",
+      "La concurrencia debe ser un entero entre 1 y 16.",
+    ]);
+    expect(
+      projectConfigurationBlockers({
+        ...valid,
+        managed: true,
+        branchesError: true,
+      }),
+    ).toEqual(["Vuelve a cargar las ramas antes de guardar."]);
+  });
+});
+
 describe("Task Detail presentation", () => {
+  test("explains why Ready is blocked by the visible Spec draft before persisted state", () => {
+    const readyTask = {
+      curatorSpec: "# Spec guardada",
+      questions: [],
+    } as Task;
+
+    expect(readyBlockerMessage(readyTask, true)).toContain("borrador local");
+    expect(readyBlockerMessage(readyTask, false)).toBeNull();
+    expect(readyBlockerMessage({ ...readyTask, curatorSpec: "" }, false)).toContain(
+      "Curator Spec no vacía",
+    );
+  });
+
   test("builds a bounded review diff between immutable Spec revisions", () => {
     expect(specLineDiff("# Scope\nKeep\nOld", "# Scope\nKeep\nNew")).toEqual([
       { kind: "context", text: "Keep" },

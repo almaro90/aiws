@@ -159,7 +159,7 @@ function AzureOrganizationSelector({ authorizationId }: { readonly authorization
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Seleccionar organización de Azure DevOps</CardTitle>
+        <CardTitle as="h3">Seleccionar organización de Azure DevOps</CardTitle>
       </CardHeader>
       <CardContent className="grid gap-3">
         {organizations.isError ? (
@@ -202,7 +202,7 @@ function RunnerStatusCard({ query }: { readonly query: UseQueryResult<RunnerStat
   return (
     <Card size="sm">
       <CardHeader>
-        <CardTitle className="flex flex-wrap items-center gap-2">
+        <CardTitle as="h3" className="flex flex-wrap items-center gap-2">
           Runner manager
           <Badge variant={status === "online" ? "secondary" : "destructive"}>{status}</Badge>
         </CardTitle>
@@ -263,7 +263,7 @@ function ConnectionCard({ connection }: { readonly connection: Connection }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center justify-between gap-3">
+        <CardTitle as="h3" className="flex items-center justify-between gap-3">
           <span>{connection.displayName}</span>
           <Badge variant="outline">{connection.status}</Badge>
         </CardTitle>
@@ -356,6 +356,7 @@ function RepositoryRow({
   readonly connectionId: string;
   readonly repository: RemoteRepository;
 }) {
+  const accountScopeId = useId();
   const client = useQueryClient();
   const [accountScope, setAccountScope] = useState<"personal" | "work">("personal");
   const [createdProject, setCreatedProject] = useState<Project | null>(null);
@@ -377,22 +378,25 @@ function RepositoryRow({
       <span className="min-w-0 break-all font-mono text-sm">
         {repository.fullName} {repository.private ? "· privado" : ""}
       </span>
-      <Select
-        items={accountScopeOptions}
-        value={accountScope}
-        onValueChange={(value) => value && setAccountScope(value as typeof accountScope)}
-      >
-        <SelectTrigger className="w-full">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {accountScopeOptions.map((option) => (
-            <SelectItem key={option.value} value={option.value}>
-              {option.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <Field>
+        <FieldLabel htmlFor={accountScopeId}>Ámbito de cuenta</FieldLabel>
+        <Select
+          items={accountScopeOptions}
+          value={accountScope}
+          onValueChange={(value) => value && setAccountScope(value as typeof accountScope)}
+        >
+          <SelectTrigger id={accountScopeId} className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {accountScopeOptions.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </Field>
       <Button size="sm" disabled={imported.isPending} onClick={() => imported.mutate()}>
         Importar
       </Button>
@@ -490,7 +494,7 @@ function ProfileForm() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex flex-wrap items-center gap-3">
+        <CardTitle as="h3" className="flex flex-wrap items-center gap-3">
           Nuevo perfil Codex
           <UnsavedChangesBadge dirty={dirty} />
         </CardTitle>

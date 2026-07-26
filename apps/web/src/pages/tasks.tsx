@@ -24,7 +24,7 @@ import {
   buttonVariants,
 } from "../components/common.tsx";
 import { Button } from "../components/ui/button.tsx";
-import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card.tsx";
+import { Card, CardContent, CardHeader } from "../components/ui/card.tsx";
 import { Checkbox } from "../components/ui/checkbox.tsx";
 import { Combobox } from "../components/ui/combobox.tsx";
 import {
@@ -525,12 +525,10 @@ export function NewTaskPage({ projectId }: { readonly projectId?: string | undef
       <PageBreadcrumb parent={{ to: "/tasks", label: "Tasks" }} current="Crear Task" />
       <Card>
         <CardHeader>
-          <CardTitle>
-            <PageHeader
-              title="Crear Task"
-              description="Podrás editar la User Request mientras la Task siga en Draft; se congelará al enviarla a Curation."
-            />
-          </CardTitle>
+          <PageHeader
+            title="Crear Task"
+            description="Podrás editar la User Request mientras la Task siga en Draft; se congelará al enviarla a Curation."
+          />
         </CardHeader>
         <CardContent>
           <form

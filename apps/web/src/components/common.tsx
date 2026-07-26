@@ -365,15 +365,18 @@ export function PageHeader({
   title,
   description,
   actions,
+  headingLevel = 1,
 }: {
   readonly title: string;
   readonly description?: string;
   readonly actions?: ReactNode;
+  readonly headingLevel?: 1 | 2;
 }) {
+  const Heading = headingLevel === 1 ? "h1" : "h2";
   return (
     <div className="flex flex-wrap items-start justify-between gap-4">
       <div className="min-w-0">
-        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{title}</h1>
+        <Heading className="text-2xl font-semibold tracking-tight sm:text-3xl">{title}</Heading>
         {description ? (
           <p className="mt-1 max-w-3xl text-sm text-muted-foreground">{description}</p>
         ) : null}
@@ -438,18 +441,21 @@ export function Empty({
   title = "No hay resultados",
   children,
   action,
+  headingLevel = 2,
 }: {
   readonly title?: string;
   readonly children: ReactNode;
   readonly action?: ReactNode;
+  readonly headingLevel?: 1 | 2 | 3;
 }) {
+  const headingTag = headingLevel === 1 ? "h1" : headingLevel === 2 ? "h2" : "h3";
   return (
     <EmptyPrimitive className="border bg-card py-10">
       <EmptyHeader>
         <EmptyMedia variant="icon">
           <CircleIcon />
         </EmptyMedia>
-        <EmptyTitle>{title}</EmptyTitle>
+        <EmptyTitle as={headingTag}>{title}</EmptyTitle>
         <EmptyDescription>{children}</EmptyDescription>
       </EmptyHeader>
       {action}

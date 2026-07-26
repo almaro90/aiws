@@ -1,0 +1,202 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-26T19:46:05.000Z",
+  "title": "Design System: AIWS Web",
+  "extensions": {
+    "colorMeta": {
+      "signal-blue": {
+        "role": "primary",
+        "displayName": "Azul señal",
+        "canonical": "#15a9fe",
+        "tonalRamp": [
+          "#06243a",
+          "#0a4168",
+          "#0d6199",
+          "#1182ca",
+          "#15a9fe",
+          "#55c0ff",
+          "#96d9ff",
+          "#ddf2ff"
+        ]
+      },
+      "cool-canvas": {
+        "role": "neutral",
+        "displayName": "Lienzo frío",
+        "canonical": "#f7fafc",
+        "tonalRamp": [
+          "#162029",
+          "#34414c",
+          "#566570",
+          "#7b8a95",
+          "#a2afb8",
+          "#c9d3da",
+          "#e4ebef",
+          "#f7fafc"
+        ]
+      },
+      "ink-navy": {
+        "role": "neutral",
+        "displayName": "Tinta navy",
+        "canonical": "#0f1c2e",
+        "tonalRamp": [
+          "#08101b",
+          "#0f1c2e",
+          "#26384e",
+          "#45586e",
+          "#687b90",
+          "#94a5b5",
+          "#c3ced7",
+          "#eef2f5"
+        ]
+      },
+      "destructive": {
+        "role": "error",
+        "displayName": "Rojo destructivo",
+        "canonical": "oklch(0.56 0.2 27)",
+        "tonalRamp": [
+          "oklch(0.2 0.08 27)",
+          "oklch(0.3 0.12 27)",
+          "oklch(0.4 0.16 27)",
+          "oklch(0.5 0.19 27)",
+          "oklch(0.56 0.2 27)",
+          "oklch(0.68 0.15 27)",
+          "oklch(0.82 0.09 27)",
+          "oklch(0.94 0.03 27)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Título de página",
+        "purpose": "Identifica la superficie y su trabajo principal."
+      },
+      "body": {
+        "displayName": "Cuerpo operativo",
+        "purpose": "Contenido, formularios y acciones."
+      },
+      "control": {
+        "displayName": "Control compacto",
+        "purpose": "Botones pequeños y acciones densas."
+      },
+      "mono": {
+        "displayName": "Dato literal",
+        "purpose": "IDs, hashes, rutas, ramas y logs."
+      }
+    },
+    "shadows": [
+      {
+        "name": "overlay-only",
+        "value": "0 10px 15px -3px rgb(15 28 46 / 0.1), 0 4px 6px -4px rgb(15 28 46 / 0.1)",
+        "purpose": "Separación exclusiva de overlays y Login; las superficies operativas permanecen planas."
+      }
+    ],
+    "motion": [
+      {
+        "name": "structural",
+        "value": "200ms ease",
+        "purpose": "Cambios de ancho o padding del shell sin movimiento ornamental."
+      }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "1024px" },
+      { "name": "xl", "value": "1280px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Acción primaria única del contexto.",
+      "html": "<button class=\"ds-button-primary\">Guardar cambios</button>",
+      "css": ".ds-button-primary { height: 36px; border: 1px solid transparent; border-radius: 0; background: var(--primary, #15a9fe); color: var(--primary-foreground, #0f1c2e); padding: 0 12px; font: 500 14px/20px \"Oxanium Variable\", system-ui, sans-serif; transition: background-color 150ms ease, transform 150ms ease; } .ds-button-primary:hover { background: color-mix(in oklch, var(--primary, #15a9fe), transparent 20%); } .ds-button-primary:focus-visible { outline: 2px solid var(--ring, #15a9fe); outline-offset: 2px; } .ds-button-primary:active { transform: translateY(1px); }"
+    },
+    {
+      "name": "Outline Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Acción secundaria con estructura visible y bajo peso.",
+      "html": "<button class=\"ds-button-outline\">Reintentar</button>",
+      "css": ".ds-button-outline { height: 36px; border: 1px solid var(--border, #d4e0e8); border-radius: 0; background: var(--background, #f7fafc); color: var(--foreground, #0f1c2e); padding: 0 12px; font: 500 14px/20px \"Oxanium Variable\", system-ui, sans-serif; transition: background-color 150ms ease; } .ds-button-outline:hover { background: var(--muted, #eff4f7); } .ds-button-outline:focus-visible { outline: 2px solid var(--ring, #15a9fe); outline-offset: 2px; }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Campo compacto con foco inequívoco.",
+      "html": "<label class=\"ds-field\"><span>Nombre</span><input class=\"ds-input\" value=\"AIWS\" /></label>",
+      "css": ".ds-field { display: grid; gap: 8px; color: var(--foreground, #0f1c2e); font: 500 14px/20px \"Oxanium Variable\", system-ui, sans-serif; } .ds-input { box-sizing: border-box; width: 100%; height: 36px; border: 1px solid var(--input, #c8d7e1); border-radius: 0; background: transparent; color: var(--foreground, #0f1c2e); padding: 6px 12px; font: 400 14px/20px \"Oxanium Variable\", system-ui, sans-serif; } .ds-input:focus-visible { border-color: var(--ring, #15a9fe); outline: 2px solid color-mix(in oklch, var(--ring, #15a9fe), transparent 40%); outline-offset: 2px; }"
+    },
+    {
+      "name": "Operational Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Contenedor plano para una región operativa coherente.",
+      "html": "<section class=\"ds-card\"><h3>Run activo</h3><p>Implementation · ejecutando</p></section>",
+      "css": ".ds-card { display: grid; gap: 8px; border: 1px solid color-mix(in oklch, var(--foreground, #0f1c2e), transparent 90%); border-radius: 0; background: var(--card, #fff); color: var(--card-foreground, #0f1c2e); padding: 16px; font-family: \"Oxanium Variable\", system-ui, sans-serif; } .ds-card h3 { margin: 0; font-size: 16px; font-weight: 500; line-height: 22px; } .ds-card p { margin: 0; color: var(--muted-foreground, #536577); font-size: 14px; line-height: 20px; }"
+    },
+    {
+      "name": "Navigation Item",
+      "kind": "nav",
+      "description": "Ruta activa de la navegación principal.",
+      "html": "<a class=\"ds-nav-item\" href=\"#\">Tasks</a>",
+      "css": ".ds-nav-item { display: flex; align-items: center; min-height: 36px; border-radius: 0; background: var(--sidebar-accent, #ddf2ff); color: var(--sidebar-accent-foreground, #0f4568); padding: 8px 12px; font: 500 14px/20px \"Oxanium Variable\", system-ui, sans-serif; text-decoration: none; } .ds-nav-item:hover { background: color-mix(in oklch, var(--sidebar-accent, #ddf2ff), var(--foreground, #0f1c2e) 4%); } .ds-nav-item:focus-visible { outline: 2px solid var(--sidebar-ring, #15a9fe); outline-offset: 2px; }"
+    },
+    {
+      "name": "Status Badge",
+      "kind": "chip",
+      "description": "Estado compacto acompañado siempre de texto e icono en la aplicación.",
+      "html": "<span class=\"ds-badge\">Curating</span>",
+      "css": ".ds-badge { display: inline-flex; align-items: center; min-height: 20px; border: 1px solid var(--border, #d4e0e8); border-radius: 0; background: var(--secondary, #eaf3f9); color: var(--secondary-foreground, #18324b); padding: 2px 8px; font: 500 12px/16px \"Oxanium Variable\", system-ui, sans-serif; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "La mesa de control precisa",
+    "overview": "AIWS se comporta como una mesa de control técnica: compacta, estable y explícita. La interfaz no compite con el trabajo; ordena estado, bloqueo, evidencia y acción para que una persona pueda orientarse con rapidez incluso cuando una Task contiene mucha historia. La identidad aparece en detalles disciplinados —Oxanium, azul señal, geometría recta y metadatos monoespaciados—, no en efectos decorativos.",
+    "keyCharacteristics": [
+      "Densidad operativa con jerarquía visible.",
+      "Geometría recta y bordes estructurales.",
+      "Azul reservado para foco, navegación y acción.",
+      "Estado comunicado mediante texto, icono y contraste.",
+      "Movimiento breve y funcional."
+    ],
+    "rules": [
+      {
+        "name": "The Signal Rule",
+        "body": "El azul primario identifica foco, selección o acción; no se usa como relleno decorativo de grandes superficies.",
+        "section": "colors"
+      },
+      {
+        "name": "The State Rule",
+        "body": "Éxito, warning, error y estados de dominio siempre combinan color con texto o icono; el color nunca transporta el significado por sí solo.",
+        "section": "colors"
+      },
+      {
+        "name": "The Literal Data Rule",
+        "body": "Solo los valores que una persona puede copiar, comparar o ejecutar usan mono; las explicaciones permanecen en Oxanium.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat-by-Default Rule",
+        "body": "Una región de contenido no gana sombra por ser importante; la jerarquía se resuelve con posición, espacio, contraste y tipografía.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do priorizar estado vigente, bloqueo y siguiente acción.",
+      "Do reutilizar tokens y componentes de src/components/ui.",
+      "Do mantener contenido completo en móvil y a zoom del 200 %.",
+      "Do mostrar loading, vacío, error, conflicto, offline y resultados parciales de forma explícita.",
+      "Do usar español en acciones y conservar los términos de dominio establecidos."
+    ],
+    "donts": [
+      "Don't convertir AIWS en un dashboard de métricas o un chat genérico.",
+      "Don't anidar cards cuando una separación, heading o borde resuelve la jerarquía.",
+      "Don't añadir gradientes, glassmorphism, glow, esquinas redondeadas o movimiento ornamental.",
+      "Don't inventar claims, estados, acciones, datos o capacidades no presentes en el contrato.",
+      "Don't ocultar información vigente para conseguir una composición más limpia."
+    ]
+  }
+}

@@ -124,6 +124,11 @@ export function TaskDetailPage({ taskId }: { readonly taskId: string }) {
   const desktop = useDesktopLayout();
   const inspectorCloseRef = useRef<HTMLButtonElement>(null);
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [focusSpecRequested, setFocusSpecRequested] = useState(false);
+  const [specDraft, setSpecDraft] = useState<{
+    readonly taskId: string;
+    readonly content: string;
+  } | null>(null);
   const [logsRun, setLogsRun] = useState<Run | null>(null);
   const query = useQuery({
     queryKey: ["task", taskId],
@@ -139,6 +144,21 @@ export function TaskDetailPage({ taskId }: { readonly taskId: string }) {
     refetchInterval: (current) =>
       current.state.data?.some((run) => isActiveRunStatus(run.status)) ? 5_000 : false,
   });
+  useEffect(() => {
+    if (!focusSpecRequested || query.data === undefined) return;
+    if (!desktop && !inspectorOpen) {
+      setInspectorOpen(true);
+      return;
+    }
+    const frame = window.requestAnimationFrame(() => {
+      const editor = document.getElementById(`spec-${query.data?.id ?? taskId}`);
+      if (!(editor instanceof HTMLTextAreaElement)) return;
+      editor.scrollIntoView({ behavior: "smooth", block: "center" });
+      editor.focus();
+      setFocusSpecRequested(false);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [desktop, focusSpecRequested, inspectorOpen, query.data, taskId]);
   const update = (task: Task, message?: string) => {
     client.setQueryData(["task", taskId], task);
     void client.invalidateQueries({ queryKey: ["timeline", taskId] });
@@ -149,6 +169,8 @@ export function TaskDetailPage({ taskId }: { readonly taskId: string }) {
     return <ErrorNotice error={query.error} retry={() => void query.refetch()} />;
   if (query.data === undefined) return <Loading label="Cargando Task" />;
   const task = query.data;
+  const spec = specDraft?.taskId === task.id ? specDraft.content : task.curatorSpec;
+  const specDirty = spec !== task.curatorSpec;
   const relevantRun = selectRelevantRun(runs.data ?? [], task.currentCycle.id);
   const refresh = () => {
     void query.refetch();
@@ -181,7 +203,14 @@ export function TaskDetailPage({ taskId }: { readonly taskId: string }) {
           </SheetClose>
         </SheetHeader>
         <div className="grid gap-4 p-4">
-          <TaskInspector task={task} onUpdate={update} reload={refresh} />
+          <TaskInspector
+            task={task}
+            spec={spec}
+            onSpecChange={(content) => setSpecDraft({ taskId: task.id, content })}
+            onSpecSaved={() => setSpecDraft(null)}
+            onUpdate={update}
+            reload={refresh}
+          />
         </div>
       </SheetContent>
     </Sheet>
@@ -211,6 +240,8 @@ export function TaskDetailPage({ taskId }: { readonly taskId: string }) {
         retryRuns={() => void runs.refetch()}
         openLogs={setLogsRun}
         inspectorAction={mobileInspector}
+        specDirty={specDirty}
+        reviewSpecDraft={() => setFocusSpecRequested(true)}
         onUpdate={update}
         reload={refresh}
       />
@@ -228,7 +259,14 @@ export function TaskDetailPage({ taskId }: { readonly taskId: string }) {
         </div>
         {desktop ? (
           <aside className="min-w-0 lg:sticky lg:top-4" aria-label="Inspector de la Task">
-            <TaskInspector task={task} onUpdate={update} reload={refresh} />
+            <TaskInspector
+              task={task}
+              spec={spec}
+              onSpecChange={(content) => setSpecDraft({ taskId: task.id, content })}
+              onSpecSaved={() => setSpecDraft(null)}
+              onUpdate={update}
+              reload={refresh}
+            />
           </aside>
         ) : null}
       </div>
@@ -251,16 +289,29 @@ function useDesktopLayout(): boolean {
 
 function TaskInspector({
   task,
+  spec,
+  onSpecChange,
+  onSpecSaved,
   onUpdate,
   reload,
 }: {
   readonly task: Task;
+  readonly spec: string;
+  readonly onSpecChange: (content: string) => void;
+  readonly onSpecSaved: () => void;
   readonly onUpdate: (task: Task, message?: string) => void;
   readonly reload: () => void;
 }) {
   return (
     <div className="grid min-w-0 gap-4">
-      <SpecSection task={task} onUpdate={onUpdate} reload={reload} />
+      <SpecSection
+        task={task}
+        spec={spec}
+        onSpecChange={onSpecChange}
+        onSpecSaved={onSpecSaved}
+        onUpdate={onUpdate}
+        reload={reload}
+      />
       <InspectorDisclosure
         title="Delivery y PR"
         description="Rama, referencia y enlace de entrega vigentes."
@@ -426,7 +477,9 @@ function ConversationTimeline({
         );
       })}
       {items.length === 0 ? (
-        <Empty title="Sin historial">Todavía no hay elementos en la timeline.</Empty>
+        <Empty title="Sin historial" headingLevel={3}>
+          Todavía no hay elementos en la timeline.
+        </Empty>
       ) : null}
     </section>
   );
@@ -450,7 +503,7 @@ function TimelineCard({
     return (
       <Card className="ml-auto w-[min(100%,42rem)] border-primary/25 bg-primary/5">
         <CardHeader>
-          <CardTitle className="text-base">
+          <CardTitle as="h3" className="text-base">
             {item.type === "initial_request"
               ? "Petición inicial"
               : item.type === "change"
@@ -468,7 +521,9 @@ function TimelineCard({
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Revisión de spec {item.revision}</CardTitle>
+          <CardTitle as="h3" className="text-base">
+            Revisión de spec {item.revision}
+          </CardTitle>
           <CardDescription>{formatDate(item.createdAt)}</CardDescription>
         </CardHeader>
         <CardContent>
@@ -487,7 +542,9 @@ function TimelineCard({
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Question · {item.question.text}</CardTitle>
+          <CardTitle as="h3" className="text-base">
+            Question · {item.question.text}
+          </CardTitle>
           <CardDescription>
             {questionStatusLabel(item.question.status)} · {formatDate(item.createdAt)}
           </CardDescription>
@@ -613,7 +670,7 @@ function RunTimelineCard({
   return (
     <Card size="sm">
       <CardHeader>
-        <CardTitle className="text-base">
+        <CardTitle as="h3" className="text-base">
           Run de {runKindLabel(run.kind)} · intento {run.attempt}
         </CardTitle>
         <CardDescription>
@@ -690,6 +747,7 @@ function RunLogsDialog({ run, close }: { readonly run: Run; readonly close: () =
         ) : missing ? (
           <Empty
             title={active ? "Iniciando captura de logs…" : "No se capturaron logs para este Run."}
+            headingLevel={3}
           >
             {current.data.errorMessage ??
               (active
@@ -699,7 +757,7 @@ function RunLogsDialog({ run, close }: { readonly run: Run; readonly close: () =
         ) : logs.isError && logs.data === undefined ? (
           <ErrorNotice error={logs.error} retry={() => void logs.refetch()} />
         ) : logText.trim() === "" ? (
-          <Empty title={active ? "Iniciando captura de logs…" : "Logs vacíos"}>
+          <Empty title={active ? "Iniciando captura de logs…" : "Logs vacíos"} headingLevel={3}>
             {active ? "Los eventos aparecerán automáticamente." : "El Run no produjo eventos."}
           </Empty>
         ) : (
@@ -757,6 +815,8 @@ function TaskHeader({
   retryRuns,
   openLogs,
   inspectorAction,
+  specDirty,
+  reviewSpecDraft,
   onUpdate,
   reload,
 }: {
@@ -766,6 +826,8 @@ function TaskHeader({
   readonly retryRuns: () => void;
   readonly openLogs: (run: Run) => void;
   readonly inspectorAction: ReactNode;
+  readonly specDirty: boolean;
+  readonly reviewSpecDraft: () => void;
   readonly onUpdate: (task: Task, message?: string) => void;
   readonly reload: () => void;
 }) {
@@ -818,6 +880,10 @@ function TaskHeader({
   });
   const titleConflict = preserveConflict(save.error, title, task.version);
   const primaryAction = primaryTaskAction(task);
+  const readyBlocker =
+    primaryAction?.kind === "transition" && primaryAction.nextStatus === "ready"
+      ? readyBlockerMessage(task, specDirty)
+      : null;
   const runActive = relevantRun !== null && isActiveRunStatus(relevantRun.status);
   const runRetryable =
     relevantRun !== null &&
@@ -831,13 +897,11 @@ function TaskHeader({
   return (
     <Card aria-label="Resumen operativo de la Task">
       <CardHeader>
-        <CardTitle>
-          <PageHeader
-            title={task.title}
-            description={taskStatusGuidance(task)}
-            actions={<StatusBadge status={task.status} />}
-          />
-        </CardTitle>
+        <PageHeader
+          title={task.title}
+          description={taskStatusGuidance(task)}
+          actions={<StatusBadge status={task.status} />}
+        />
       </CardHeader>
       <CardContent className="grid gap-4">
         {task.automationPaused ? (
@@ -1054,7 +1118,6 @@ function TaskHeader({
               title={primaryAction.label}
               description={transitionDescription(task.status, primaryAction.nextStatus)}
               confirmLabel={primaryAction.label}
-              disabled={primaryAction.nextStatus === "ready" && !canReady(task)}
               action={(reason) =>
                 api.transitionTask(
                   task.id,
@@ -1066,6 +1129,7 @@ function TaskHeader({
                   task.version,
                 )
               }
+              disabled={readyBlocker !== null}
               onSuccess={(value) => onUpdate(value, `Task movida a ${primaryAction.nextStatus}`)}
             />
           ) : null}
@@ -1113,14 +1177,26 @@ function TaskHeader({
           ) : null}
           {inspectorAction}
         </div>
-        {primaryAction?.kind === "transition" &&
-        primaryAction.nextStatus === "ready" &&
-        !canReady(task) &&
-        !task.archivedAt ? (
-          <p className="text-sm text-muted-foreground">
-            Para marcar Ready, guarda una Curator Spec no vacía y resuelve todas las Questions
-            abiertas.
-          </p>
+        {readyBlocker !== null && !task.archivedAt ? (
+          specDirty ? (
+            <Alert>
+              <CircleAlertIcon />
+              <AlertTitle>Ready bloqueado por cambios sin guardar</AlertTitle>
+              <AlertDescription className="grid gap-3">
+                <p>{readyBlocker}</p>
+                <Button
+                  className="justify-self-start"
+                  size="sm"
+                  variant="outline"
+                  onClick={reviewSpecDraft}
+                >
+                  <PencilIcon /> Revisar borrador
+                </Button>
+              </AlertDescription>
+            </Alert>
+          ) : (
+            <p className="text-sm text-muted-foreground">{readyBlocker}</p>
+          )
         ) : null}
         {save.isError && !titleConflict ? <ErrorNotice error={save.error} /> : null}
         {restore.isError ? <ErrorNotice error={restore.error} /> : null}
@@ -1325,26 +1401,28 @@ function SectionCard({
 
 function SpecSection({
   task,
+  spec,
+  onSpecChange,
+  onSpecSaved,
   onUpdate,
   reload,
 }: {
   readonly task: Task;
+  readonly spec: string;
+  readonly onSpecChange: (content: string) => void;
+  readonly onSpecSaved: () => void;
   readonly onUpdate: (task: Task, message?: string) => void;
   readonly reload: () => void;
 }) {
-  const [spec, setSpec] = useState(task.curatorSpec);
   const save = useMutation({
     mutationFn: () => api.updateTask(task.id, { curatorSpec: spec }, task.version),
     onSuccess: (value) => {
       onUpdate(value, "Curator Spec guardada");
-      setSpec(value.curatorSpec);
+      onSpecSaved();
     },
   });
   const conflict = preserveConflict(save.error, spec, task.version);
   const dirty = spec !== task.curatorSpec;
-  useEffect(() => {
-    if (!dirty) setSpec(task.curatorSpec);
-  }, [task.curatorSpec, dirty]);
   useEffect(() => {
     if (save.error && !conflict) focusFirstInvalid();
   }, [save.error, conflict]);
@@ -1399,7 +1477,7 @@ function SpecSection({
                 aria-describedby={
                   apiFieldMessage(save.error, "curatorSpec") ? `spec-${task.id}-error` : undefined
                 }
-                onChange={(event) => setSpec(event.target.value)}
+                onChange={(event) => onSpecChange(event.target.value)}
               />
               <FieldError id={`spec-${task.id}-error`}>
                 {apiFieldMessage(save.error, "curatorSpec")}
@@ -1534,7 +1612,7 @@ function QuestionsSection({
         ) : null}
       </div>
       {controlsOnly ? null : ordered.length === 0 ? (
-        <Empty title={openOnly ? "Sin Questions abiertas" : "Sin Questions"}>
+        <Empty title={openOnly ? "Sin Questions abiertas" : "Sin Questions"} headingLevel={3}>
           No hay información pendiente para esta Task.
         </Empty>
       ) : (
@@ -1778,7 +1856,7 @@ function QuestionCard({
   return (
     <Card size="sm">
       <CardHeader>
-        <CardTitle>{question.text}</CardTitle>
+        <CardTitle as="h3">{question.text}</CardTitle>
         <CardDescription>
           {question.type.replaceAll("_", " ")} · creada {formatDate(question.createdAt)}
         </CardDescription>
@@ -2078,7 +2156,9 @@ function AttachmentsSection({
           />
         ) : null}
         {task.attachments.length === 0 ? (
-          <Empty title="Sin Attachments">No hay ficheros asociados a esta Task.</Empty>
+          <Empty title="Sin Attachments" headingLevel={3}>
+            No hay ficheros asociados a esta Task.
+          </Empty>
         ) : (
           <div className="divide-y rounded-lg border">
             {task.attachments.map((attachment) => (
@@ -2289,11 +2369,18 @@ function ReasonActionDialog<T>({
   );
 }
 
-function canReady(task: Task): boolean {
-  return (
-    task.curatorSpec.trim().length > 0 &&
-    !task.questions.some((question) => question.status === "open")
-  );
+export function readyBlockerMessage(task: Task, specDirty: boolean): string | null {
+  if (specDirty) {
+    return "La Curator Spec visible todavía es un borrador local. Revísala y guárdala antes de marcar Ready.";
+  }
+  const missingSpec = task.curatorSpec.trim().length === 0;
+  const openQuestions = task.questions.some((question) => question.status === "open");
+  if (missingSpec && openQuestions) {
+    return "Para marcar Ready, guarda una Curator Spec no vacía y resuelve todas las Questions abiertas.";
+  }
+  if (missingSpec) return "Para marcar Ready, guarda una Curator Spec no vacía.";
+  if (openQuestions) return "Para marcar Ready, resuelve todas las Questions abiertas.";
+  return null;
 }
 function transitionDescription(from: TaskStatus, to: TaskStatus): string {
   return `Confirma la transición ${from} → ${to}. La versión de la Task se incrementará una vez.`;

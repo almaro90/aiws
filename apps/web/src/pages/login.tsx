@@ -46,7 +46,9 @@ export function LoginPage({ redirect }: { readonly redirect?: string | undefined
             data-brand-logo="login"
             className="mb-3 size-12 object-contain"
           />
-          <CardTitle className="text-xl">Iniciar sesión</CardTitle>
+          <CardTitle as="h1" className="text-xl">
+            Iniciar sesión
+          </CardTitle>
           <CardDescription>Accede al workspace local de AIWS.</CardDescription>
         </CardHeader>
         <CardContent>

@@ -25,6 +25,29 @@ const project = {
   archivedAt: null,
 };
 
+const connectionId = "con_01K0ABCDEFGHJKMNPQRSTVWXYZ";
+const managedConnection = {
+  id: connectionId,
+  provider: "github",
+  host: "https://github.com",
+  externalAccountId: "installation-1",
+  displayName: "AIWS GitHub",
+  status: "active",
+  installationId: "installation-1",
+  createdAt: project.createdAt,
+  updatedAt: project.updatedAt,
+};
+const remoteRepository = {
+  id: "repo-1",
+  fullName: "alvaro/aiws",
+  name: "aiws",
+  description: "AIWS repository",
+  webUrl: "https://github.com/alvaro/aiws",
+  cloneUrl: "https://github.com/alvaro/aiws.git",
+  defaultBranch: "main",
+  private: true,
+};
+
 const taskId = "tsk_01K0ABCDEFGHJKMNPQRSTVWXYZ";
 const cycleId = "cyc_01K0ABCDEFGHJKMNPQRSTVWXYZ";
 const historicalCycleId = "cyc_01K0ABCDEFGHJKMNPQRSTVWXY0";
@@ -233,6 +256,8 @@ async function mockApi(
     uploadPartial?: boolean;
     projectReadiness?: boolean;
     readyApprovalPending?: boolean;
+    specSave?: boolean;
+    managedConnection?: boolean;
     taskStatus?: "draft" | "curating" | "blocked" | "ready" | "implementing" | "done";
     cycles?: boolean;
   } = {},
@@ -359,7 +384,12 @@ async function mockApi(
           })
         : route.fulfill({ status: 204 });
     }
-    if (path === "/connections") return route.fulfill({ json: [] });
+    if (path === "/connections") {
+      return route.fulfill({ json: options.managedConnection ? [managedConnection] : [] });
+    }
+    if (path === `/connections/${connectionId}/repositories` && options.managedConnection) {
+      return route.fulfill({ json: [remoteRepository] });
+    }
     if (path === "/agent-profiles")
       return route.fulfill({
         json: options.projectProfiles
@@ -703,6 +733,16 @@ async function mockApi(
       const request = route.request().postDataJSON() as { userRequest?: string };
       return route.fulfill({ json: { ...representedTask, ...request, version: 2 } });
     }
+    if (path === `/tasks/${taskId}` && route.request().method() === "PATCH" && options.specSave) {
+      const request = route.request().postDataJSON() as { curatorSpec?: string };
+      return route.fulfill({
+        json: {
+          ...representedTask,
+          ...request,
+          version: representedTask.version + 1,
+        },
+      });
+    }
     if (path === `/tasks/${taskId}/transition` && options.draft) {
       return route.fulfill({ json: { ...representedTask, status: "curating", version: 3 } });
     }
@@ -777,10 +817,11 @@ async function mockApi(
 }
 
 async function navigateFromSidebar(page: Page, label: string) {
-  let link = page.getByRole("link", { name: label, exact: true });
+  const primaryNavigation = page.getByRole("navigation", { name: "Principal" });
+  let link = primaryNavigation.getByRole("link", { name: label, exact: true });
   if (!(await link.first().isVisible())) {
     await page.getByRole("button", { name: "Abrir navegación" }).click();
-    link = page.getByRole("link", { name: label, exact: true });
+    link = primaryNavigation.getByRole("link", { name: label, exact: true });
   }
   await link.click();
 }
@@ -839,6 +880,41 @@ test("configures Curation independently and requires a profile to activate Imple
   await implementation.focus();
   await page.keyboard.press("Space");
   await expect(page.getByRole("button", { name: "Guardar configuración" })).toBeDisabled();
+  await expect(page.getByText("No se puede guardar la configuración")).toBeVisible();
+  await expect(
+    page.getByText("Selecciona un Perfil de Implementation para activar Implementation."),
+  ).toBeVisible();
+});
+
+test("identifies each dirty Project section and navigates between commit boundaries", async ({
+  page,
+}) => {
+  await mockApi(page, { projectProfiles: true });
+  await page.goto(`/projects/${project.id}`);
+  const sections = page.getByRole("navigation", { name: "Secciones del Project" });
+  await expect(sections.getByRole("link")).toHaveCount(5);
+
+  await page.getByLabel("Nombre").fill("AIWS editado");
+  await expect(sections.getByRole("link", { name: "Repositorio Modificado" })).toBeVisible();
+
+  const curationProfile = page.getByRole("combobox", { name: "Perfil de Curation" });
+  await curationProfile.click();
+  await page.getByRole("option", { name: "Curator" }).click();
+  await expect(sections.getByRole("link", { name: "Configuración Modificado" })).toBeVisible();
+
+  await page
+    .getByLabel("Comandos JSON")
+    .fill(
+      JSON.stringify(
+        [{ name: "tests", executable: "bun", args: ["test"], required: true, timeoutSeconds: 300 }],
+        null,
+        2,
+      ),
+    );
+  await expect(sections.getByRole("link", { name: "Verificación Modificado" })).toBeVisible();
+
+  await sections.getByRole("link", { name: "Configuración Modificado" }).click();
+  await expect.poll(() => new URL(page.url()).hash).toBe(`#project-configuration-${project.id}`);
 });
 
 test("runs standard and explicitly confirmed deep Project Readiness checks", async ({ page }) => {
@@ -914,6 +990,49 @@ test("reviews the latest immutable Spec change before Ready", async ({ page }) =
   await expect(page.getByText("+ Conservar el teléfono en el CSV.")).toBeVisible();
 });
 
+test("blocks Ready until the visible Curator Spec draft is saved", async ({ page }) => {
+  await mockApi(page, {
+    taskStatus: "curating",
+    readyApprovalPending: true,
+    specSave: true,
+  });
+  await page.goto(`/tasks/${taskId}`);
+  await openInspectorIfNeeded(page);
+  const editor = page.getByLabel("Curator Spec Markdown");
+  const draft = "# Summary\nConservar teléfono y prefijo internacional.";
+  await editor.fill(draft);
+  if ((page.viewportSize()?.width ?? 1280) < 1024) {
+    await page.getByRole("button", { name: "Cerrar inspector" }).click();
+  }
+
+  const ready = page.getByRole("button", { name: "Aprobar y marcar Ready" });
+  await expect(ready).toBeDisabled();
+  await expect(page.getByText("Ready bloqueado por cambios sin guardar")).toBeVisible();
+
+  await page.getByRole("button", { name: "Revisar borrador" }).click();
+  await expect(editor).toBeFocused();
+  const saveRequest = page.waitForRequest(
+    (request) => request.url().endsWith(`/api/v1/tasks/${taskId}`) && request.method() === "PATCH",
+  );
+  await page.getByRole("button", { name: "Guardar Spec" }).click();
+  const saved = await saveRequest;
+  expect(saved.postDataJSON()).toEqual({ curatorSpec: draft });
+  expect(saved.headers()["if-match"]).toBe('"4"');
+
+  if ((page.viewportSize()?.width ?? 1280) < 1024) {
+    await page.getByRole("button", { name: "Cerrar inspector" }).click();
+  }
+  await expect(ready).toBeEnabled();
+  await ready.click();
+  const dialog = page.getByRole("dialog", { name: "Aprobar y marcar Ready" });
+  const transitionRequest = page.waitForRequest(
+    (request) =>
+      request.url().endsWith(`/api/v1/tasks/${taskId}/transition`) && request.method() === "POST",
+  );
+  await dialog.getByRole("button", { name: "Aprobar y marcar Ready" }).click();
+  expect((await transitionRequest).headers()["if-match"]).toBe('"5"');
+});
+
 test("creates and disables an immutable Project Verification Contract revision", async ({
   page,
 }) => {
@@ -941,6 +1060,8 @@ test("creates and disables an immutable Project Verification Contract revision",
     commands,
   });
   await expect(page.getByText("Activo · revision 1")).toBeVisible();
+  await expect(page.getByText("Revision 1 · 1 comandos")).toBeHidden();
+  await page.getByText("Historial de revisiones (1)").click();
   await expect(page.getByText("Revision 1 · 1 comandos")).toBeVisible();
 
   await page.getByRole("button", { name: "Desactivar contrato" }).click();
@@ -1393,7 +1514,7 @@ test("explains that dismissing the last Question returns the Task to Curating", 
 });
 
 test("uses normalized terminology across Projects, Automation and Runs", async ({ page }) => {
-  await mockApi(page, { runs: true });
+  await mockApi(page, { runs: true, managedConnection: true });
   await page.goto("/projects");
   await expect(page.getByLabel("Proveedor Git")).toBeVisible();
   await expect(page.getByLabel("Ámbito de cuenta")).toBeVisible();
@@ -1403,6 +1524,17 @@ test("uses normalized terminology across Projects, Automation and Runs", async (
   await expect(page.getByRole("button", { name: "Conectar GitHub" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Conectar Azure DevOps" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Conexiones" })).toBeVisible();
+  await page.getByRole("button", { name: "Elegir repos" }).click();
+  const repository = page.getByRole("combobox", { name: "Repositorio gestionado" });
+  await repository.click();
+  await page.getByRole("option", { name: remoteRepository.fullName }).click();
+  const accountScope = page.getByRole("combobox", { name: "Ámbito de cuenta" });
+  await expect(accountScope).toBeVisible();
+  await accountScope.focus();
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("End");
+  await page.keyboard.press("Enter");
+  await expect(accountScope).toContainText("Trabajo");
   await expect(page.getByRole("heading", { name: "Perfiles de agente" })).toBeVisible();
   await expect(page.getByLabel("Modelo")).toBeVisible();
   await expect(page.getByLabel("Esfuerzo de razonamiento")).toBeVisible();
@@ -1410,6 +1542,41 @@ test("uses normalized terminology across Projects, Automation and Runs", async (
   await page.goto(`/tasks/${taskId}`);
   await expect(page.getByText("Run de Implementation · intento 2")).toBeVisible();
   await expect(page.getByRole("button", { name: "Reintentar", exact: true })).toHaveCount(0);
+});
+
+test("exposes one page heading and a navigable section outline", async ({ page }) => {
+  await mockApi(page);
+
+  await page.goto(`/projects/${project.id}`);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
+  await expect(page.getByRole("heading", { level: 1, name: project.name })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 2, name: "Repositorio" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 2, name: "Configuración" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 3, name: "Curation" })).toBeVisible();
+
+  await page.goto("/projects/new");
+  await expect(page.getByRole("heading", { level: 1, name: "Crear Project" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
+
+  await page.goto("/tasks/new");
+  await expect(page.getByRole("heading", { level: 1, name: "Crear Task" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
+
+  await page.goto(`/tasks/${taskId}`);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
+  await expect(page.getByRole("heading", { level: 1, name: activeTask.title })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { level: 2, name: "Conversación e historial" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { level: 3, name: /Question · ¿Qué comportamiento esperabas/ }),
+  ).toBeVisible();
+
+  await page.goto("/login");
+  await expect(page.getByRole("heading", { level: 1, name: "Iniciar sesión" })).toBeVisible();
+
+  await page.goto("/ruta-inexistente");
+  await expect(page.getByRole("heading", { level: 1, name: "Página no encontrada" })).toBeVisible();
 });
 
 test("keeps the current screen and controls available when health is offline", async ({ page }) => {
@@ -1521,8 +1688,10 @@ test("shows shadcn notifications at the top right", async ({ page }) => {
   await expect(toast).toBeHidden();
 });
 
-test("preserves the Curator Spec draft on a version conflict", async ({ page }) => {
-  await mockApi(page, { conflict: true });
+test("preserves the Curator Spec draft and keeps Ready blocked on a version conflict", async ({
+  page,
+}) => {
+  await mockApi(page, { conflict: true, taskStatus: "curating" });
   await page.goto(`/tasks/${taskId}`);
   await openInspectorIfNeeded(page);
   const editor = page.getByLabel("Curator Spec Markdown");
@@ -1531,6 +1700,11 @@ test("preserves the Curator Spec draft on a version conflict", async ({ page }) 
   await expect(page.getByText("La Task cambió mientras editabas")).toBeVisible();
   await expect(editor).toHaveValue("# Borrador local\nNo perder este contenido.");
   await expect(page.getByText("Versión leída: 4; versión actual: 5.")).toBeVisible();
+  if ((page.viewportSize()?.width ?? 1280) < 1024) {
+    await page.getByRole("button", { name: "Cerrar inspector" }).click();
+  }
+  await expect(page.getByRole("button", { name: "Marcar Ready" })).toBeDisabled();
+  await expect(page.getByText("Ready bloqueado por cambios sin guardar")).toBeVisible();
 });
 
 test("uses a focus-managed dialog for destructive actions", async ({ page }) => {

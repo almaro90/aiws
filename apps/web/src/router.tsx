@@ -55,6 +55,7 @@ const rootRoute = createRootRouteWithContext<RouterContext>()({
     <main className="grid min-h-svh place-items-center p-4">
       <Empty
         title="Página no encontrada"
+        headingLevel={1}
         action={
           <Link className={buttonVariants()} to="/tasks">
             Volver a Tasks
