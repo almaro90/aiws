@@ -73,6 +73,15 @@ export class VersionConflictError extends DomainError {
   }
 }
 
+export class RevisionConflictError extends DomainError {
+  constructor(expectedRevision: number | null, currentRevision: number | null) {
+    super("Verification Contract revision does not match.", "revision_conflict", {
+      expectedRevision,
+      currentRevision,
+    });
+  }
+}
+
 export class InvalidTransitionError extends DomainError {
   constructor(message: string, details?: Readonly<Record<string, unknown>>) {
     super(message, "invalid_transition", details);

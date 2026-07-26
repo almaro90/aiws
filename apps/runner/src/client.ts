@@ -10,6 +10,8 @@ export interface Assignment {
     readonly baseSha: string | null;
     readonly headSha: string | null;
     readonly summary: string | null;
+    readonly verificationContractRevision: number | null;
+    readonly verificationWaiverRunId: string | null;
   };
   readonly task: {
     readonly id: string;
@@ -17,6 +19,7 @@ export interface Assignment {
     readonly userRequest: string;
     readonly curatorSpec: string;
     readonly version: number;
+    readonly currentCycleId: string;
     readonly questions: readonly {
       readonly text: string;
       readonly type: string;
@@ -29,6 +32,7 @@ export interface Assignment {
       readonly id: string;
       readonly originalName: string;
       readonly mimeType: string;
+      readonly sha256: string;
     }[];
     readonly cycles: readonly { readonly id: string; readonly number: number }[];
     readonly messages: readonly {
@@ -62,6 +66,17 @@ export interface Assignment {
     readonly baseBranch: string | null;
     readonly prUrl: string | null;
   } | null;
+  readonly verificationContract: {
+    readonly revision: number;
+    readonly enabled: boolean;
+    readonly commands: readonly {
+      readonly name: string;
+      readonly executable: string;
+      readonly args: readonly string[];
+      readonly required: boolean;
+      readonly timeoutSeconds: number;
+    }[];
+  } | null;
 }
 
 interface GitCredentialBase {
@@ -82,6 +97,10 @@ export interface RunState {
   readonly status: string;
   readonly executionStage: "agent" | "publishing";
   readonly resumeFromRunId: string | null;
+  readonly baseSha: string | null;
+  readonly headSha: string | null;
+  readonly branchName: string | null;
+  readonly verificationContractRevision: number | null;
 }
 
 export class AiwsRunnerClient {
@@ -107,6 +126,20 @@ export class AiwsRunnerClient {
   }
   async heartbeat(runId: string): Promise<void> {
     await this.json(`/api/v1/runs/${runId}/heartbeat`, {});
+  }
+  async verificationResults(
+    runId: string,
+    results: readonly Record<string, unknown>[],
+  ): Promise<RunState> {
+    return this.json(`/api/v1/runs/${runId}/verification-results`, { results });
+  }
+  async recordProvenance(runId: string, provenance: Record<string, unknown>): Promise<void> {
+    const response = await this.call(`/api/v1/runs/${runId}/provenance`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(provenance),
+    });
+    await response.body?.cancel();
   }
   async uploadLogs(runId: string, jsonl: string): Promise<void> {
     await this.call(`/api/v1/runs/${runId}/logs`, {

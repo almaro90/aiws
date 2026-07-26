@@ -56,6 +56,14 @@ export interface Delivery {
   readonly branchName: string | null;
   readonly baseBranch: string | null;
   readonly prUrl: string | null;
+  readonly prState: "draft" | "open" | "closed" | "merged" | null;
+  readonly checksState: "pending" | "passed" | "failed" | "unknown" | null;
+  readonly checksPassed: number;
+  readonly checksFailed: number;
+  readonly checksPending: number;
+  readonly externalUpdatedAt: string | null;
+  readonly lastSynchronizedAt: string | null;
+  readonly synchronizationError: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
 }

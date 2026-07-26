@@ -187,6 +187,58 @@ export class GitHubAppGateway implements ManagedGitProvider {
     return this.createPullRequest(connection, repository, input);
   }
 
+  async observeDelivery(
+    connection: Connection,
+    repository: string,
+    _repositoryId: string,
+    prUrl: string,
+    headSha: string | null,
+  ): Promise<import("./managed-git-provider.ts").ExternalDeliveryObservation> {
+    const pullNumber = prUrl.match(/\/pull\/(\d+)\/?$/u)?.[1];
+    if (pullNumber === undefined) throw new Error("GitHub pull request URL is invalid.");
+    const token = await this.installationToken(githubConnection(connection).installationId);
+    const pull = record(
+      await this.installationRequest(token, `/repos/${repository}/pulls/${pullNumber}`),
+      "GitHub pull request",
+    );
+    const sha =
+      headSha ??
+      (typeof pull.head === "object" && pull.head !== null && "sha" in pull.head
+        ? string(pull.head.sha, "GitHub head SHA")
+        : null);
+    const checks =
+      sha === null
+        ? []
+        : array(
+            record(
+              await this.installationRequest(
+                token,
+                `/repos/${repository}/commits/${encodeURIComponent(sha)}/check-runs`,
+              ),
+              "GitHub checks",
+            ).check_runs,
+            "GitHub checks",
+          ).map((item) => record(item, "GitHub check"));
+    const counts = checkCounts(
+      checks.map((check) => ({
+        pending: check.status !== "completed",
+        passed: check.conclusion === "success" || check.conclusion === "neutral",
+      })),
+    );
+    return {
+      prState:
+        pull.merged_at !== null && pull.merged_at !== undefined
+          ? "merged"
+          : pull.state === "closed"
+            ? "closed"
+            : pull.draft === true
+              ? "draft"
+              : "open",
+      ...counts,
+      externalUpdatedAt: typeof pull.updated_at === "string" ? pull.updated_at : null,
+    };
+  }
+
   private async installationToken(installationId: string): Promise<string> {
     const response = record(
       await this.appRequest(
@@ -233,6 +285,25 @@ export class GitHubAppGateway implements ManagedGitProvider {
     signer.update(unsigned);
     return `${unsigned}.${signer.sign(this.config.privateKey).toString("base64url")}`;
   }
+}
+
+function checkCounts(checks: readonly { readonly pending: boolean; readonly passed: boolean }[]) {
+  const checksPending = checks.filter((check) => check.pending).length;
+  const checksPassed = checks.filter((check) => !check.pending && check.passed).length;
+  const checksFailed = checks.length - checksPending - checksPassed;
+  return {
+    checksPassed,
+    checksFailed,
+    checksPending,
+    checksState:
+      checks.length === 0
+        ? ("unknown" as const)
+        : checksFailed > 0
+          ? ("failed" as const)
+          : checksPending > 0
+            ? ("pending" as const)
+            : ("passed" as const),
+  };
 }
 
 function githubConnection(connection: Connection): Extract<Connection, { provider: "github" }> {

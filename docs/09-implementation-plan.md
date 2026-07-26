@@ -512,3 +512,84 @@ overlays de sandbox, servicios adicionales ni cambios de dominio/API/SQLite.
 
 Fuera de alcance: Azure DevOps Server, MSA, PAT, service principals, webhooks, sincronización
 posterior, merge, reviewers, Azure Boards y Pipelines.
+
+## Project Readiness v0.6.2 — implementado
+
+### Hito 25 — Diagnóstico por Project
+
+- [x] Roadmap y especificaciones promovidos a `docs/phases/`.
+- [x] Contrato efímero estándar/profundo sin persistencia.
+- [x] Módulo Server provider-neutral y probe runner con cleanup.
+- [x] API, CLI y Web.
+- [x] OpenAPI, cliente, documentación y pruebas sincronizados.
+- [x] Playbooks protegidos GitHub/Azure.
+- [ ] Smoke Docker y providers reales en gate operativo protegido.
+
+Fuera de alcance: persistir diagnósticos, crear Runs/Tasks de prueba, control Docker genérico o
+configurar Verification Contract antes del Hito 27.
+
+## Entregas verificables v0.7–v0.8 — implementado
+
+### Hito 26 — Aprobación Ready configurable
+
+- [x] Contrato y decisiones promovidos.
+- [x] Core y migración `0011`.
+- [x] API, CLI y Web.
+- [x] OpenAPI, cliente, timeline y pruebas.
+- [x] Gates completos: 353 tests, build y 103 E2E pasados (5 omitidos por matriz).
+
+Fuera de alcance: nuevo Task Status, identidad humana verificable o política global.
+
+### Hito 27 — Verification Contract por Project
+
+- [x] Contrato y decisiones promovidos.
+- [x] Dominio versionado y migración `0012`.
+- [x] Snapshot de revisión en Runs de Implementation.
+- [x] API, CLI y Web.
+- [x] OpenAPI, cliente, documentación y pruebas.
+- [x] Gates completos: 362 tests, build y 105 E2E pasados (5 omitidos por matriz).
+
+Fuera de alcance: ejecutar checks, resultados, waiver, overrides por Task, shell, variables de
+entorno o working directory configurable.
+
+### Hito 28 — Verification Results y Run provenance
+
+- [x] Contrato y decisiones promovidos.
+- [x] Dominio, estados, evidencia y migración `0013`.
+- [x] Ejecutor argv en runner y flujo verifying.
+- [x] Fallo required/opcional y waiver.
+- [x] Provenance inmutable por Run.
+- [x] API, CLI, Web, OpenAPI, cliente, documentación y pruebas.
+- [x] Gates completos: 365 tests, build y 105 E2E pasados (5 omitidos por matriz).
+
+Fuera de alcance: ejecutar verificaciones en Server, shell, auto-waiver, auto-merge, despliegue o
+configuración secreta en el contrato.
+
+### Hito 29 — Necesita atención
+
+- [x] Contrato y decisiones promovidos.
+- [x] Read model server-side paginado y determinista.
+- [x] Resolución y deduplicación de causas.
+- [x] API, CLI y Web.
+- [x] OpenAPI, cliente, documentación y pruebas.
+- [x] Gates completos: 366 tests, build y 105 E2E pasados (5 omitidos por matriz).
+
+### Hito 30 — Delivery Projection
+
+- [x] Contrato y decisiones promovidos.
+- [x] Proyección persistida y migración `0014`.
+- [x] Seam provider-neutral con paridad GitHub/Azure.
+- [x] Refresh manual con diagnóstico seguro y observación stale.
+- [x] API, CLI, Web, OpenAPI, cliente, documentación y pruebas.
+- [x] Gates completos: 369 tests y build; la matriz E2E se revalidó en el cierre del Hito 31.
+
+### Hito 31 — Trazabilidad de Spec y métricas
+
+- [x] Contrato y decisiones promovidos.
+- [x] Diff de revisiones de Spec antes de Ready.
+- [x] Agregados locales por Project y rango UTC.
+- [x] Cobertura y staleness explícitos.
+- [x] API, CLI, OpenAPI, cliente, documentación y pruebas.
+- [x] Gates finales: format, lint, arquitectura, typecheck, OpenAPI (83 operaciones), 373 tests,
+  build, smoke local y 107 E2E pasados (5 omitidos por matriz).
+- [ ] Smoke Docker: interrumpido tras más de 16 minutos bloqueado en `docker build` sin salida.

@@ -394,3 +394,40 @@ adapters; Hono no selecciona endpoints de provider para operaciones compartidas.
 La autorización inicial permanece en módulos específicos. Azure OAuth, cifrado y caché de tokens
 son infraestructura Server/SQLite y no entran en Core. El runner recibe una unión system-only de
 credenciales basic/bearer y configura Git sin interpolar secretos.
+
+## 22. Project Readiness
+
+Server compone un módulo profundo `ProjectReadinessService` tras una única interfaz de comprobación.
+Coordina lecturas Core, el registry provider-neutral, la actividad del runner y su cliente de
+control interno.
+
+El probe profundo vive en runner-manager, que ya posee Docker, imagen, red y workspace. Solo
+devuelve checks seguros; la adquisición, timeout y cleanup quedan tras seams inyectables y no se
+expone control Docker genérico.
+
+## 23. Aprobación Ready configurable
+
+La política pertenece a Project, el flag preparado a Task y el snapshot a Run. Core decide cómo
+aplicar el resultado estructurado y conserva en una única transacción Task, Spec Revision, Run y
+TaskEvents. SQLite solo persiste esas decisiones. Hono, CLI y React proyectan el mismo contrato y
+no inventan un estado adicional.
+## Extensión Hito 27 — seam de Verification Contract
+
+Core posee validación, revisión y concurrencia del contrato. SQLite implementa el store append-only.
+API, CLI y Web solo consumen casos de uso HTTP. Runner todavía no ejecuta comandos: Hito 27 limita
+su alcance a configurar y fotografiar la revisión para que Hito 28 consuma una referencia estable.
+## Extensión Hito 28 — ejecución verificada
+
+Runner-manager es el único componente que ejecuta el agente y los comandos argv dentro del
+contenedor aislado. Core decide transiciones, fallo required y waiver; SQLite conserva evidencia y
+provenance. Server expone comandos internos acotados para registrar resultados, nunca ejecuta
+toolchain ni controla Docker directamente.
+
+## Extensión Hitos 29–31 — read models y observación Git
+
+Server compone `AttentionService` y `ProductMetricsService` como consultas de solo lectura sobre
+SQLite. La sincronización de Delivery vive detrás de `ManagedGitProvider.observeDelivery`; los
+adapters GitHub y Azure normalizan sus estados sin filtrarlos a Core. React y CLI consumen HTTP.
+
+El diff de Spec es una presentación Web acotada sobre revisiones expuestas por `TaskAggregate`; no
+añade un motor de diff ni una dependencia al dominio.

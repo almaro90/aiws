@@ -7,6 +7,7 @@ export const connectionIdSchema = prefixedId("con_", "Connection");
 export const azureAuthorizationIdSchema = prefixedId("azr_", "Azure authorization");
 export const agentProfileIdSchema = prefixedId("agp_", "Agent Profile");
 export const runIdSchema = prefixedId("run_", "Run");
+export const deliveryIdSchema = prefixedId("del_", "Delivery");
 export const registerConnectionSchema = z.strictObject({
   host: z
     .string()
@@ -36,7 +37,7 @@ export const modelCatalogRequestSchema = z.strictObject({
 });
 export const setAgentProfileEnabledSchema = z.strictObject({ enabled: z.boolean() });
 export const advanceRunSchema = z.strictObject({
-  status: z.enum(["preparing", "running", "publishing"]),
+  status: z.enum(["preparing", "running", "verifying", "publishing"]),
   baseSha: z
     .string()
     .regex(/^[0-9a-f]{40,64}$/u)
@@ -89,6 +90,61 @@ export const failRunSchema = z.strictObject({
 export const cancelRunSchema = z.strictObject({ reason: z.string().trim().min(1).max(2_000) });
 export const retryRunSchema = z.strictObject({
   mode: z.enum(["auto", "full", "publish_only"]).default("auto"),
+});
+const verificationResultSchema = z.strictObject({
+  position: z.number().int().min(0).max(19),
+  name: z.string().min(1).max(120),
+  executable: z.string().min(1).max(1_024),
+  args: z.array(z.string().max(4_096)).max(100),
+  required: z.boolean(),
+  status: z.enum(["passed", "failed", "timed_out", "spawn_error", "cancelled"]),
+  startedAt: z.string().datetime({ offset: true, precision: 3 }),
+  finishedAt: z.string().datetime({ offset: true, precision: 3 }),
+  durationMs: z.number().int().nonnegative(),
+  exitCode: z.number().int().nullable(),
+  stdoutExcerpt: z.string().max(16_384),
+  stderrExcerpt: z.string().max(16_384),
+  imageDigest: z.string().min(1).max(512),
+  toolchainIdentity: z.string().min(1).max(1_024),
+});
+export const recordVerificationResultsSchema = z.strictObject({
+  results: z.array(verificationResultSchema).max(20),
+});
+export const waiveVerificationSchema = z.strictObject({
+  reason: z.string().trim().min(1).max(2_000),
+});
+export const recordRunProvenanceSchema = z.strictObject({
+  aiwsVersion: z.string().min(1).max(120),
+  codexCliVersion: z.string().max(120).nullable(),
+  model: z.string().max(120).nullable(),
+  reasoningEffort: z.string().max(120).nullable(),
+  agentImage: z.string().min(1).max(512),
+  agentImageDigest: z.string().min(1).max(512),
+  toolchainIdentity: z.array(z.string().max(1_024)).max(100),
+  resourceLimits: z.record(z.string(), z.union([z.string(), z.number()])),
+  networkProfile: z.string().max(255),
+  baseSha: z
+    .string()
+    .regex(/^[0-9a-f]{40,64}$/u)
+    .nullable(),
+  headSha: z
+    .string()
+    .regex(/^[0-9a-f]{40,64}$/u)
+    .nullable(),
+  branchName: z.string().max(255).nullable(),
+  promptBuilderVersion: z.string().min(1).max(120),
+  promptHash: z.string().regex(/^[0-9a-f]{64}$/u),
+  specRevision: z.number().int().positive().nullable(),
+  attachments: z
+    .array(
+      z.strictObject({
+        id: z.string().min(1).max(64),
+        sha256: z.string().regex(/^[0-9a-f]{64}$/u),
+      }),
+    )
+    .max(100),
+  verificationContractRevision: z.number().int().positive().nullable(),
+  publicationOutcome: z.enum(["not_applicable", "not_attempted", "published", "failed", "waived"]),
 });
 export const reconcileRunsSchema = z.strictObject({
   before: z.string().datetime({ offset: true, precision: 3 }),

@@ -8,6 +8,7 @@ import {
   SystemClock,
   TaskUseCases,
   UlidIdGenerator,
+  VerificationContractUseCases,
 } from "@aiws/core";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -50,6 +51,7 @@ function fixture() {
     connections: new ConnectionUseCases(unitOfWork, { clock, ids }),
     runs: new RunUseCases(unitOfWork, { clock, ids }),
     questions: new QuestionUseCases(unitOfWork, { clock, ids }),
+    contracts: new VerificationContractUseCases(unitOfWork, { clock, ids }),
   };
 }
 
@@ -110,6 +112,181 @@ async function readyAutomatedTask(value: ReturnType<typeof fixture>) {
 }
 
 describe("managed automation persistence", () => {
+  test("snapshots the active Verification Contract revision when claiming Implementation", async () => {
+    const value = fixture();
+    const task = await readyAutomatedTask(value);
+    const command = {
+      name: "tests",
+      executable: "bun",
+      args: ["test"],
+      required: true,
+      timeoutSeconds: 300,
+    };
+    await value.contracts.replace({
+      projectId: task.projectId,
+      expectedRevision: null,
+      commands: [command],
+    });
+    const assignment = await value.runs.claimNext();
+    if (assignment === null) throw new Error("Implementation was not claimed");
+    expect(assignment.run).toMatchObject({
+      kind: "implementation",
+      verificationContractRevision: 1,
+    });
+    await value.contracts.replace({
+      projectId: task.projectId,
+      expectedRevision: 1,
+      commands: [{ ...command, name: "lint", args: ["run", "lint"] }],
+    });
+    expect(await value.runs.get(assignment.run.id)).toMatchObject({
+      verificationContractRevision: 1,
+    });
+    await value.unitOfWork.close();
+  });
+
+  test("stores immutable verification evidence, blocks required failure and links a waiver Run", async () => {
+    const value = fixture();
+    const task = await readyAutomatedTask(value);
+    const command = {
+      name: "tests",
+      executable: "bun",
+      args: ["test"],
+      required: true,
+      timeoutSeconds: 300,
+    };
+    await value.contracts.replace({
+      projectId: task.projectId,
+      expectedRevision: null,
+      commands: [command],
+    });
+    const assignment = await value.runs.claimNext();
+    if (assignment === null) throw new Error("Implementation was not claimed");
+    expect(assignment.verificationContract?.commands).toEqual([command]);
+    await value.runs.advance(assignment.run.id, "running", { baseSha: "a".repeat(40) });
+    await value.runs.advance(assignment.run.id, "verifying", {
+      headSha: "b".repeat(40),
+      summary: "Implementation checkpoint.",
+    });
+    const now = new Date().toISOString();
+    const failed = await value.runs.recordVerification(assignment.run.id, [
+      {
+        position: 0,
+        name: "tests",
+        executable: "bun",
+        args: ["test"],
+        required: true,
+        status: "failed",
+        startedAt: now,
+        finishedAt: now,
+        durationMs: 12,
+        exitCode: 1,
+        stdoutExcerpt: "",
+        stderrExcerpt: "one test failed",
+        imageDigest: "sha256:fixture",
+        toolchainIdentity: "sha256:fixture:bun",
+      },
+    ]);
+    expect(failed).toMatchObject({
+      status: "failed",
+      errorCode: "verification_failed",
+      baseSha: "a".repeat(40),
+      headSha: "b".repeat(40),
+    });
+    expect(await value.runs.verificationResults(failed.id)).toHaveLength(1);
+    await expect(value.runs.recordVerification(failed.id, [])).rejects.toThrow();
+    const ready = await value.tasks.get(task.id);
+    expect(ready).toMatchObject({ status: "ready", automationPaused: true });
+    const waiver = await value.runs.waiveVerification(
+      failed.id,
+      ready.version,
+      "External dependency is unavailable; reviewer accepted the risk.",
+    );
+    expect(waiver.run).toMatchObject({
+      executionStage: "publishing",
+      resumeFromRunId: failed.id,
+      verificationWaiverRunId: failed.id,
+      verificationWaiverReason: "External dependency is unavailable; reviewer accepted the risk.",
+      baseSha: "a".repeat(40),
+      headSha: "b".repeat(40),
+    });
+    expect((await value.runs.get(failed.id)).status).toBe("failed");
+    await value.unitOfWork.close();
+  });
+
+  test("advances after optional verification failure and closes provenance once", async () => {
+    const value = fixture();
+    const task = await readyAutomatedTask(value);
+    await value.contracts.replace({
+      projectId: task.projectId,
+      expectedRevision: null,
+      commands: [
+        {
+          name: "e2e",
+          executable: "bun",
+          args: ["run", "test:e2e"],
+          required: false,
+          timeoutSeconds: 300,
+        },
+      ],
+    });
+    const assignment = await value.runs.claimNext();
+    if (assignment === null) throw new Error("Implementation was not claimed");
+    await value.runs.advance(assignment.run.id, "running", { baseSha: "a".repeat(40) });
+    await value.runs.advance(assignment.run.id, "verifying", { headSha: "b".repeat(40) });
+    const now = new Date().toISOString();
+    const publishing = await value.runs.recordVerification(assignment.run.id, [
+      {
+        position: 0,
+        name: "e2e",
+        executable: "bun",
+        args: ["run", "test:e2e"],
+        required: false,
+        status: "timed_out",
+        startedAt: now,
+        finishedAt: now,
+        durationMs: 300_000,
+        exitCode: null,
+        stdoutExcerpt: "",
+        stderrExcerpt: "timeout",
+        imageDigest: "sha256:fixture",
+        toolchainIdentity: "sha256:fixture:bun",
+      },
+    ]);
+    expect(publishing.status).toBe("publishing");
+    await value.runs.complete(assignment.run.id, {
+      prUrl: "https://github.com/acme/repo/pull/verification",
+      headSha: "b".repeat(40),
+      summary: "Published with optional warning.",
+    });
+    const provenance = await value.runs.recordProvenance(assignment.run.id, {
+      aiwsVersion: "0.8.0",
+      codexCliVersion: "codex 1",
+      model: "gpt-test",
+      reasoningEffort: "medium",
+      agentImage: "aiws-agent:0.8.0",
+      agentImageDigest: "sha256:fixture",
+      toolchainIdentity: ["bun"],
+      resourceLimits: { cpus: 2 },
+      networkProfile: "default",
+      baseSha: "a".repeat(40),
+      headSha: "b".repeat(40),
+      branchName: assignment.run.branchName,
+      promptBuilderVersion: "1",
+      promptHash: "c".repeat(64),
+      specRevision: null,
+      attachments: [],
+      verificationContractRevision: 1,
+      publicationOutcome: "published",
+    });
+    expect(await value.runs.provenance(assignment.run.id)).toEqual(provenance);
+    await expect(
+      value.runs.recordProvenance(assignment.run.id, {
+        ...provenance,
+      }),
+    ).rejects.toThrow();
+    await value.unitOfWork.close();
+  });
+
   test("requires an enabled Agent Profile before managed curation", async () => {
     const value = fixture();
     const connection = await value.connections.register({
@@ -311,6 +488,94 @@ describe("managed automation persistence", () => {
     await value.unitOfWork.close();
   });
 
+  test("snapshots manual Ready approval and excludes prepared Tasks from curation claims", async () => {
+    const value = fixture();
+    const profile = await value.profiles.create({
+      name: "Approval curator",
+      authMode: "api_key",
+      credentialReference: "APPROVAL_API_KEY",
+      ...profileSelection(),
+    });
+    const connection = await value.connections.register({
+      host: "https://github.com",
+      externalAccountId: "approval",
+      displayName: "acme",
+      installationId: "approval",
+    });
+    const project = await value.projects.createManaged({
+      name: "Approval",
+      repositoryPath: "/repos/approval",
+      accountScope: "work",
+      connectionId: connection.id,
+      remoteRepositoryId: "approval",
+      remoteFullName: "acme/approval",
+      remoteWebUrl: "https://github.com/acme/approval",
+      defaultBranch: "main",
+    });
+    await value.projects.update(project.id, {
+      curationAgentProfileId: profile.id,
+      readyPolicy: "manual_approval_required",
+    });
+    let task = await value.tasks.create({
+      projectId: project.id,
+      userRequest: "Prepare approval",
+      actorType: "web",
+    });
+    task = await value.tasks.transition({
+      taskId: task.id,
+      expectedVersion: task.version,
+      from: "draft",
+      to: "curating",
+      actorType: "web",
+    });
+    const assignment = await value.runs.claimNext();
+    if (assignment === null) throw new Error("Curation was not claimed");
+    expect(assignment.run.readyPolicy).toBe("manual_approval_required");
+    await value.projects.update(project.id, { readyPolicy: "curator_decides" });
+    await value.runs.advance(assignment.run.id, "running");
+    const completed = await value.runs.completeCuration(assignment.run.id, {
+      outcome: "ready",
+      curatorSpec: "# Prepared",
+      summary: "Ready for explicit approval.",
+    });
+    expect(completed).toMatchObject({
+      status: "succeeded",
+      outcome: "approval_required",
+      readyPolicy: "manual_approval_required",
+    });
+    const prepared = await value.tasks.get(task.id);
+    expect(prepared).toMatchObject({
+      status: "curating",
+      readyApprovalPending: true,
+      version: assignment.task.version + 1,
+    });
+    expect(await value.runs.claimNext()).toBeNull();
+
+    const approvals = await Promise.allSettled([
+      value.tasks.transition({
+        taskId: task.id,
+        expectedVersion: prepared.version,
+        from: "curating",
+        to: "ready",
+        actorType: "web",
+      }),
+      value.tasks.transition({
+        taskId: task.id,
+        expectedVersion: prepared.version,
+        from: "curating",
+        to: "ready",
+        actorType: "cli",
+      }),
+    ]);
+    expect(approvals.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(await value.tasks.get(task.id)).toMatchObject({
+      status: "ready",
+      readyApprovalPending: false,
+      version: prepared.version + 1,
+    });
+    await value.unitOfWork.close();
+  });
+
   test("discards a stale curation result, pauses on failure and retries by kind", async () => {
     const value = fixture();
     const ready = await readyAutomatedTask(value);
@@ -507,6 +772,7 @@ describe("managed automation persistence", () => {
     if (assignment === null) throw new Error("Run was not claimed");
     await value.runs.advance(assignment.run.id, "running", { baseSha: "a".repeat(40) });
     await value.runs.advance(assignment.run.id, "publishing", {
+      headSha: "b".repeat(40),
       summary: "Agent completed once.",
     });
     const failed = await value.runs.fail(assignment.run.id, {
@@ -519,6 +785,7 @@ describe("managed automation persistence", () => {
       executionStage: "publishing",
       resumeFromRunId: failed.id,
       baseSha: "a".repeat(40),
+      headSha: "b".repeat(40),
       summary: "Agent completed once.",
     });
     const cancelled = await value.runs.cancel(
@@ -542,7 +809,10 @@ describe("managed automation persistence", () => {
     const first = await value.runs.claimNext();
     if (first === null) throw new Error("Run was not claimed");
     await value.runs.advance(first.run.id, "running", { baseSha: "a".repeat(40) });
-    await value.runs.advance(first.run.id, "publishing", { summary: "Agent completed once." });
+    await value.runs.advance(first.run.id, "publishing", {
+      headSha: "b".repeat(40),
+      summary: "Agent completed once.",
+    });
     const failed = await value.runs.fail(first.run.id, {
       errorCode: "runner_failed",
       errorMessage: "Pull request publishing failed",

@@ -38,7 +38,8 @@ export type TaskEventType =
   | "message_created"
   | "spec_revision_created"
   | "delivery_created"
-  | "delivery_updated";
+  | "delivery_updated"
+  | "ready_approval_requested";
 
 export interface TaskEvent {
   readonly id: TaskEventId;
@@ -102,7 +103,8 @@ export type TaskEventFact =
       readonly cycleId: TaskCycleId;
       readonly revision: number;
     }
-  | { readonly type: "delivery_created" | "delivery_updated"; readonly deliveryId: DeliveryId };
+  | { readonly type: "delivery_created" | "delivery_updated"; readonly deliveryId: DeliveryId }
+  | { readonly type: "ready_approval_requested"; readonly runId: RunId };
 
 export interface TaskEventContext {
   readonly id: TaskEventId;
@@ -213,6 +215,8 @@ async function metadataFor(
     case "delivery_created":
     case "delivery_updated":
       return { taskVersion, deliveryId: fact.deliveryId };
+    case "ready_approval_requested":
+      return { taskVersion, runId: fact.runId };
   }
 }
 

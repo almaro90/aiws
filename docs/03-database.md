@@ -245,3 +245,34 @@ organización Azure únicas.
 marcas de consumo/completado. La reconstrucción desactiva foreign keys solo durante la transacción,
 usa `legacy_alter_table` para conservar las referencias existentes y ejecuta
 `foreign_key_check` antes de confirmar.
+
+## 19. Project Readiness
+
+Hito 25 no añade migración ni tabla. Los informes son efímeros y no se escriben en SQLite,
+TaskEvents, logs de Run ni filesystem persistente.
+
+## 20. Migración de aprobación Ready
+
+`0011_ready_approval_policy.sql` añade `projects.ready_policy` con default
+`curator_decides`, `tasks.ready_approval_pending` con default `0` y `runs.ready_policy` como
+snapshot. Reconstruye Runs para admitir `outcome=approval_required`. El backfill conserva el
+workflow anterior y ninguna fila existente queda pendiente de aprobación.
+## Migración 0012 — Verification Contract
+
+`verification_contract_revisions` conserva revisiones por Project con número monótono, estado
+activo/desactivado y comandos JSON validados por Core. `runs.verification_contract_revision`
+referencia la revisión capturada únicamente para Runs de Implementation y permanece null en
+Curation o cuando no había contrato activo.
+## Migración 0013 — Evidence y provenance
+
+La migración añade `verifying` a Run, relación de waiver, `verification_results` append-only y un
+`run_provenance` singleton inmutable por Run. Los campos almacenan argv JSON, tiempos, resultado,
+fragmentos acotados y referencias/hashes seguros; no secretos ni rutas físicas.
+
+## Migración 0014 — Delivery Projection
+
+Añade a `deliveries` el estado normalizado de PR y checks, contadores, instante externo, instante de
+sincronización y error seguro. El refresh actualiza la misma Delivery; un fallo conserva la última
+observación válida. Attention y métricas consultan estas columnas sin tablas agregadas nuevas.
+
+Hitos 29 y 31 no añaden persistencia: sus resultados se derivan al leer.

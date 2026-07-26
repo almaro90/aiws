@@ -103,7 +103,7 @@ export class QuestionUseCases {
         ...this.definition(input),
         now,
       });
-      const task = mutateTaskForQuestion(current, now, "blocked");
+      const task = mutateTaskForQuestion(current, now, "blocked", true);
       const facts: TaskEventFact[] = [this.definitionFact("question_created", question)];
       if (current.status !== "blocked") {
         facts.push({
@@ -168,7 +168,7 @@ export class QuestionUseCases {
       this.assertCurrentCycle(current, existing);
       const now = timestamp(this.dependencies.clock);
       const question = reopenQuestion(existing, now);
-      const task = mutateTaskForQuestion(current, now, "blocked");
+      const task = mutateTaskForQuestion(current, now, "blocked", true);
       const facts: TaskEventFact[] = [
         {
           type: "question_reopened",
@@ -318,18 +318,28 @@ export class QuestionUseCases {
   }
 
   private async aggregate(stores: Stores, task: Task): Promise<TaskAggregate> {
-    const [project, questions, attachments, currentCycle, currentDelivery] = await Promise.all([
-      stores.projects.getById(task.projectId),
-      stores.questions.listByTaskId(task.id),
-      stores.attachments.listByTaskId(task.id),
-      stores.cycles.getById(task.currentCycleId),
-      task.currentDeliveryId === null
-        ? Promise.resolve(null)
-        : stores.deliveries.getById(task.currentDeliveryId),
-    ]);
+    const [project, questions, attachments, specRevisions, currentCycle, currentDelivery] =
+      await Promise.all([
+        stores.projects.getById(task.projectId),
+        stores.questions.listByTaskId(task.id),
+        stores.attachments.listByTaskId(task.id),
+        stores.specRevisions.listByTaskId(task.id),
+        stores.cycles.getById(task.currentCycleId),
+        task.currentDeliveryId === null
+          ? Promise.resolve(null)
+          : stores.deliveries.getById(task.currentDeliveryId),
+      ]);
     if (project === null) throw new NotFoundError("Project", task.projectId);
     if (currentCycle === null) throw new NotFoundError("Task", task.id);
-    return { ...task, project, questions, attachments, currentCycle, currentDelivery };
+    return {
+      ...task,
+      project,
+      questions,
+      attachments,
+      specRevisions,
+      currentCycle,
+      currentDelivery,
+    };
   }
 
   private async eventsFor(

@@ -2,6 +2,10 @@ import type {
   Attachment,
   Project,
   ProjectPage,
+  ProjectReadinessReport,
+  VerificationCommand,
+  VerificationContractRevision,
+  VerificationContractState,
   Question,
   Session,
   Task,
@@ -16,6 +20,9 @@ import type {
   RunnerStatus,
   TimelinePage,
   NotificationSettings,
+  VerificationResult,
+  RunProvenance,
+  AttentionPage,
 } from "./types.ts";
 
 export class ApiError extends Error {
@@ -124,6 +131,10 @@ function json(method: string, body?: unknown, version?: number): RequestInit {
 export const api = {
   health: () => request<{ status: "ok" | "unhealthy"; version: string }>("/health"),
   runnerStatus: () => request<RunnerStatus>("/system/runner"),
+  attention: (cursor?: string) =>
+    request<AttentionPage>(
+      `/attention?limit=50${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+    ),
   notificationSettings: () => request<NotificationSettings>("/notification-settings"),
   updateNotificationSettings: (input: unknown) =>
     request<NotificationSettings>("/notification-settings", json("PATCH", input)),
@@ -135,6 +146,22 @@ export const api = {
   projects: (query = "") => request<ProjectPage>(`/projects${query}`),
   project: (id: string) => request<Project>(`/projects/${id}`),
   projectBranches: (id: string) => request<RemoteBranch[]>(`/projects/${id}/branches`),
+  projectReadiness: (id: string, depth: "standard" | "deep") =>
+    request<ProjectReadinessReport>(`/projects/${id}/readiness-check`, json("POST", { depth })),
+  verificationContract: (id: string) =>
+    request<VerificationContractState>(`/projects/${id}/verification-contract`),
+  verificationContractHistory: (id: string) =>
+    request<VerificationContractRevision[]>(`/projects/${id}/verification-contract/revisions`),
+  replaceVerificationContract: (
+    id: string,
+    input: { expectedRevision: number | null; commands: VerificationCommand[] },
+  ) =>
+    request<VerificationContractState>(`/projects/${id}/verification-contract`, json("PUT", input)),
+  disableVerificationContract: (id: string, expectedRevision: number) =>
+    request<VerificationContractState>(
+      `/projects/${id}/verification-contract/disable`,
+      json("POST", { expectedRevision }),
+    ),
   createProject: (input: unknown) => request<Project>("/projects", json("POST", input)),
   updateProject: (id: string, input: unknown) =>
     request<Project>(`/projects/${id}`, json("PATCH", input)),
@@ -234,10 +261,22 @@ export const api = {
   },
   runLogs: (runId: string) => requestText(`/runs/${runId}/logs`),
   run: (runId: string) => request<Run>(`/runs/${runId}`),
+  runVerification: (runId: string) =>
+    request<{ readonly items: readonly VerificationResult[] }>(`/runs/${runId}/verification`),
+  runProvenance: (runId: string) => request<RunProvenance>(`/runs/${runId}/provenance`),
   retryRun: (runId: string, version: number, mode: "auto" | "full" | "publish_only" = "auto") =>
     request<unknown>(`/runs/${runId}/retry`, json("POST", { mode }, version)),
   cancelRun: (runId: string, reason: string, version: number) =>
     request<Run>(`/runs/${runId}/cancel`, json("POST", { reason }, version)),
+  waiveVerification: (runId: string, reason: string, version: number) =>
+    request<unknown>(`/runs/${runId}/waive-verification`, json("POST", { reason }, version)),
+  deliveryProjection: (deliveryId: string) =>
+    request<Task["currentDelivery"]>(`/deliveries/${deliveryId}/projection`),
+  refreshDeliveryProjection: (deliveryId: string) =>
+    request<Task["currentDelivery"]>(
+      `/deliveries/${deliveryId}/projection/refresh`,
+      json("POST", {}),
+    ),
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {

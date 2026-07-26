@@ -35,6 +35,9 @@ const AutomationPage = lazy(async () => ({
 const NotificationsPage = lazy(async () => ({
   default: (await import("./pages/notifications.tsx")).NotificationsPage,
 }));
+const AttentionPage = lazy(async () => ({
+  default: (await import("./pages/attention.tsx")).AttentionPage,
+}));
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -148,6 +151,11 @@ const notificationsRoute = createRoute({
   path: "/notifications",
   component: NotificationsPage,
 });
+const attentionRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: "/attention",
+  component: AttentionPage,
+});
 
 const routeTree = rootRoute.addChildren([
   indexRoute,
@@ -161,6 +169,7 @@ const routeTree = rootRoute.addChildren([
     taskRoute,
     automationRoute,
     notificationsRoute,
+    attentionRoute,
   ]),
 ]);
 

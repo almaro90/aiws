@@ -76,7 +76,8 @@ describe("Git workspace manager", () => {
     const prepared = await manager.prepare(runId, mirror, remote, "", "main", `aiws/test/${runId}`);
     expect(ownershipPaths).toEqual([prepared.path]);
     await writeFile(join(prepared.path, "change.txt"), "changed\n");
-    const head = await manager.commitAndPush(prepared, `aiws/test/${runId}`, "", "aiws: test");
+    const head = await manager.commit(prepared, "aiws: test");
+    await manager.push(prepared, `aiws/test/${runId}`, "", head);
     expect(head).toHaveLength(40);
     expect((await command(["git", "--git-dir", remote, "show", `${head}:change.txt`])).trim()).toBe(
       "changed",
@@ -96,13 +97,13 @@ describe("Git workspace manager", () => {
       `aiws/test/${runId}`,
     );
     await manager.cleanup(curationRunId, mirror);
-    expect(await manager.resumePublishing(runId, prepared.baseSha)).toEqual(prepared);
+    expect(await manager.resumePublishing(runId, prepared.baseSha, head)).toEqual(prepared);
     await writeFile(join(prepared.path, "partial.txt"), "not checkpointed\n");
-    await expect(manager.resumePublishing(runId, prepared.baseSha)).rejects.toThrow(
+    await expect(manager.resumePublishing(runId, prepared.baseSha, head)).rejects.toThrow(
       "does not match its publishing checkpoint",
     );
     await rm(join(prepared.path, "partial.txt"));
-    await expect(manager.resumePublishing(runId, "f".repeat(40))).rejects.toThrow();
+    await expect(manager.resumePublishing(runId, "f".repeat(40), head)).rejects.toThrow();
     await manager.cleanup(runId, mirror);
 
     const fallbackRunId = `run_${"1".repeat(26)}`;

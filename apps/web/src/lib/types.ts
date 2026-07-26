@@ -17,9 +17,16 @@ export type RemoteBranch = components["schemas"]["RemoteBranch"];
 export type AgentProfile = components["schemas"]["AgentProfile"];
 export type ModelCatalog = components["schemas"]["ModelCatalog"];
 export type Run = components["schemas"]["Run"];
+export type VerificationResult = components["schemas"]["VerificationResult"];
+export type RunProvenance = components["schemas"]["RunProvenance"];
+export type AttentionPage = components["schemas"]["AttentionPage"];
 export type TimelinePage = components["schemas"]["TimelinePage"];
 export type TimelineItem = components["schemas"]["TimelineItem"];
 export type RunnerStatus = components["schemas"]["RunnerStatus"];
+export type ProjectReadinessReport = components["schemas"]["ProjectReadinessReport"];
+export type VerificationCommand = components["schemas"]["VerificationCommand"];
+export type VerificationContractRevision = components["schemas"]["VerificationContractRevision"];
+export type VerificationContractState = components["schemas"]["VerificationContractState"];
 
 export interface NotificationSettings {
   readonly enabled: boolean;

@@ -9,6 +9,7 @@ import {
   UnsupportedMediaTypeError,
   ValidationError,
   VersionConflictError,
+  RevisionConflictError,
 } from "@aiws/core";
 
 export class HttpError extends Error {
@@ -30,6 +31,7 @@ export function domainStatus(error: DomainError): number {
   if (error instanceof ValidationError) return 422;
   if (error instanceof NotFoundError) return 404;
   if (error instanceof VersionConflictError) return 409;
+  if (error instanceof RevisionConflictError) return 409;
   if (error instanceof InvalidTransitionError) return 409;
   if (error instanceof ProjectHasActiveTasksError) return 409;
   if (error instanceof StorageError) return 500;

@@ -140,6 +140,54 @@ describe("SQLite migration contract", () => {
     expect(packaged.trimEnd()).toBe(contract.trimEnd());
   });
 
+  test("keeps the Ready approval migration identical to the SQL contract", () => {
+    const contract = readFileSync(
+      join(import.meta.dir, "../../../docs/database/0011_ready_approval_policy.sql"),
+      "utf8",
+    );
+    const packaged = readFileSync(
+      join(import.meta.dir, "../migrations/0011_ready_approval_policy.sql"),
+      "utf8",
+    );
+    expect(packaged.trimEnd()).toBe(contract.trimEnd());
+  });
+
+  test("keeps the Verification Contract migration identical to the SQL contract", () => {
+    const contract = readFileSync(
+      join(import.meta.dir, "../../../docs/database/0012_verification_contract.sql"),
+      "utf8",
+    );
+    const packaged = readFileSync(
+      join(import.meta.dir, "../migrations/0012_verification_contract.sql"),
+      "utf8",
+    );
+    expect(packaged.trimEnd()).toBe(contract.trimEnd());
+  });
+
+  test("keeps the Run evidence migration identical to the SQL contract", () => {
+    const contract = readFileSync(
+      join(import.meta.dir, "../../../docs/database/0013_run_evidence.sql"),
+      "utf8",
+    );
+    const packaged = readFileSync(
+      join(import.meta.dir, "../migrations/0013_run_evidence.sql"),
+      "utf8",
+    );
+    expect(packaged.trimEnd()).toBe(contract.trimEnd());
+  });
+
+  test("keeps the Delivery Projection migration identical to the SQL contract", () => {
+    const contract = readFileSync(
+      join(import.meta.dir, "../../../docs/database/0014_delivery_projection.sql"),
+      "utf8",
+    );
+    const packaged = readFileSync(
+      join(import.meta.dir, "../migrations/0014_delivery_projection.sql"),
+      "utf8",
+    );
+    expect(packaged.trimEnd()).toBe(contract.trimEnd());
+  });
+
   test("migrates an empty database once and configures every required pragma", () => {
     const directory = temporaryDirectory();
     const path = join(directory, "aiws.sqlite");
@@ -161,7 +209,7 @@ describe("SQLite migration contract", () => {
       database
         .query<{ count: number }, []>("SELECT count(*) AS count FROM schema_migrations")
         .get(),
-    ).toEqual({ count: 10 });
+    ).toEqual({ count: 14 });
     database
       .query<void, [string, string, string, string, string]>(
         `INSERT INTO agent_profiles(
@@ -189,7 +237,7 @@ describe("SQLite migration contract", () => {
       reopened
         .query<{ count: number }, []>("SELECT count(*) AS count FROM schema_migrations")
         .get(),
-    ).toEqual({ count: 10 });
+    ).toEqual({ count: 14 });
     expect(
       reopened.query<{ applied_at: string }, []>("SELECT applied_at FROM schema_migrations").get(),
     ).toEqual({ applied_at: "2026-07-21T10:00:00.000Z" });
@@ -218,7 +266,7 @@ describe("SQLite migration contract", () => {
       migrated
         .query<{ count: number }, []>("SELECT count(*) AS count FROM schema_migrations")
         .get(),
-    ).toEqual({ count: 10 });
+    ).toEqual({ count: 14 });
     expect(
       migrated
         .query<{ enabled: number; base_url: string; topic: string }, []>(
@@ -407,6 +455,97 @@ describe("SQLite migration contract", () => {
     migrated.close();
   });
 
+  test("backfills the Ready policy and curation Run snapshot from an existing 0010 database", () => {
+    const directory = temporaryDirectory();
+    const oldMigrations = join(directory, "pre-ready-policy-migrations");
+    mkdirSync(oldMigrations);
+    for (const name of [
+      "0001_initial.sql",
+      "0002_managed_automation.sql",
+      "0003_managed_curation.sql",
+      "0004_task_cycles.sql",
+      "0005_run_recovery.sql",
+      "0006_agent_model_catalog.sql",
+      "0007_global_notifications.sql",
+      "0008_separate_agent_profiles.sql",
+      "0009_delivery_base_branch.sql",
+      "0010_azure_devops_provider.sql",
+    ]) {
+      copyFileSync(join(import.meta.dir, "../migrations", name), join(oldMigrations, name));
+    }
+    const path = join(directory, "aiws.sqlite");
+    const legacy = openDatabase({ path, migrationsDirectory: oldMigrations });
+    const timestamp = "2026-07-26T10:00:00.000Z";
+    const profileId = "agp_00000000000000000000000001";
+    const projectId = "prj_00000000000000000000000001";
+    const taskId = "tsk_00000000000000000000000001";
+    const runId = "run_00000000000000000000000001";
+    legacy
+      .query(
+        `INSERT INTO agent_profiles(
+          id, name, runtime, auth_mode, credential_reference, enabled, created_at, updated_at
+        ) VALUES (?, 'Curator', 'codex', 'api_key', 'OPENAI_API_KEY', 1, ?, ?)`,
+      )
+      .run(profileId, timestamp, timestamp);
+    legacy
+      .query(
+        `INSERT INTO projects(
+          id, name, description, repository_path, git_provider, account_scope,
+          repository_mode, automation_enabled, curation_agent_profile_id,
+          schedule_timezone, max_concurrency, created_at, updated_at
+        ) VALUES (?, 'Legacy', '', '/repos/legacy', 'github', 'personal',
+          'local', 1, ?, 'UTC', 1, ?, ?)`,
+      )
+      .run(projectId, profileId, timestamp, timestamp);
+    legacy
+      .query(
+        `INSERT INTO tasks(
+          id, project_id, title, user_request, status, version, created_at, updated_at
+        ) VALUES (?, ?, 'Legacy Task', 'Preserve behavior', 'curating', 1, ?, ?)`,
+      )
+      .run(taskId, projectId, timestamp, timestamp);
+    legacy
+      .query(
+        `INSERT INTO runs(
+          id, task_id, project_id, agent_profile_id, kind, outcome, attempt, status,
+          task_version, execution_stage, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, 'curation', 'ready', 1, 'succeeded', 1, 'agent', ?, ?)`,
+      )
+      .run(runId, taskId, projectId, profileId, timestamp, timestamp);
+    legacy.close();
+
+    const migrated = openDatabase({ path });
+    expect(
+      migrated
+        .query<{ ready_policy: string }, [string]>("SELECT ready_policy FROM projects WHERE id = ?")
+        .get(projectId),
+    ).toEqual({ ready_policy: "curator_decides" });
+    expect(
+      migrated
+        .query<{ ready_approval_pending: number }, [string]>(
+          "SELECT ready_approval_pending FROM tasks WHERE id = ?",
+        )
+        .get(taskId),
+    ).toEqual({ ready_approval_pending: 0 });
+    expect(
+      migrated
+        .query<
+          {
+            outcome: string;
+            ready_policy: string;
+            verification_contract_revision: number | null;
+          },
+          [string]
+        >("SELECT outcome, ready_policy, verification_contract_revision FROM runs WHERE id = ?")
+        .get(runId),
+    ).toEqual({
+      outcome: "ready",
+      ready_policy: "curator_decides",
+      verification_contract_revision: null,
+    });
+    migrated.close();
+  });
+
   test("refuses to start when an applied migration checksum diverges", () => {
     const directory = temporaryDirectory();
     const migrations = join(directory, "migrations");
@@ -592,6 +731,7 @@ describe("SQLite migration contract", () => {
       "idx_azure_oauth_authorizations_expires",
       "idx_connections_azure_organization",
       "idx_connections_github_installation",
+      "idx_deliveries_checks_attention",
       "idx_deliveries_task_created",
       "idx_notification_outbox_due",
       "idx_projects_active_updated",
@@ -615,6 +755,7 @@ describe("SQLite migration contract", () => {
       "idx_tasks_automation_ready",
       "idx_tasks_curation_candidates",
       "idx_tasks_project_active_status",
+      "idx_verification_contract_project_revision",
     ]);
     database.close();
   });

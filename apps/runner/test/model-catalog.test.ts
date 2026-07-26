@@ -75,6 +75,43 @@ describe("Codex model catalog", () => {
     ).toBe(403);
   });
 
+  test("exposes only the bounded authenticated readiness probe", async () => {
+    const secret = "x".repeat(32);
+    const readiness = {
+      check: async () => [
+        { id: "agent_image", status: "pass" as const, message: "Agent image is available." },
+      ],
+    };
+    const control = new RunnerControlServer(
+      1,
+      secret,
+      { list: async () => ({ models: [] }) } as never,
+      false,
+      readiness as never,
+    );
+    const response = await control.fetch(
+      new Request("http://runner/internal/project-readiness", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          profiles: [
+            {
+              kind: "curation",
+              authMode: "api_key",
+              credentialReference: "OPENAI_API_KEY",
+              model: "gpt-test",
+              reasoningEffort: "high",
+            },
+          ],
+        }),
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      checks: [{ id: "agent_image", status: "pass", message: "Agent image is available." }],
+    });
+  });
+
   test("maps missing credentials to catalog_unavailable without exposing them", async () => {
     const secret = "x".repeat(32);
     const control = new RunnerControlServer(

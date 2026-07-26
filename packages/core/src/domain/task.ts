@@ -1,5 +1,6 @@
 import { InvalidTransitionError, type ValidationIssue } from "../errors/domain-errors.ts";
 import type { DeliveryId, ProjectId, TaskCycleId, TaskId } from "./ids.ts";
+import type { ReadyPolicy } from "./project.ts";
 import { assertNonBlank, characterLength, throwIfIssues } from "./validation.ts";
 
 export const TASK_STATUSES = [
@@ -27,6 +28,7 @@ export interface Task {
   readonly automationPaused: boolean;
   readonly currentCycleId: TaskCycleId;
   readonly currentDeliveryId: DeliveryId | null;
+  readonly readyApprovalPending: boolean;
 }
 
 export interface NewTask {
@@ -67,6 +69,7 @@ export function createTask(input: NewTask): Task {
     automationPaused: false,
     currentCycleId: input.currentCycleId ?? (`cyc_${input.id.slice(4)}` as TaskCycleId),
     currentDeliveryId: null,
+    readyApprovalPending: false,
   };
 }
 
@@ -126,6 +129,7 @@ export function updateTask(task: Task, changes: TaskChanges, now: string): TaskM
     ...(changes.userRequest === undefined ? {} : { userRequest: changes.userRequest }),
     ...(changes.curatorSpec === undefined ? {} : { curatorSpec: changes.curatorSpec }),
     ...(changes.prUrl === undefined ? {} : { prUrl: changes.prUrl }),
+    readyApprovalPending: changes.curatorSpec === undefined ? task.readyApprovalPending : false,
     version: task.version + 1,
     updatedAt: now,
   };
@@ -175,7 +179,13 @@ export function transitionTask(
       });
     }
   }
-  return { ...task, status: to, version: task.version + 1, updatedAt: now };
+  return {
+    ...task,
+    status: to,
+    readyApprovalPending: to === "ready" ? false : task.readyApprovalPending,
+    version: task.version + 1,
+    updatedAt: now,
+  };
 }
 
 export function archiveTask(task: Task, now: string): Task {
@@ -200,14 +210,26 @@ export function mutateTaskForQuestion(
   task: Task,
   now: string,
   status: TaskStatus = task.status,
+  clearReadyApproval = false,
 ): Task {
   assertTaskActive(task);
-  return { ...task, status, version: task.version + 1, updatedAt: now };
+  return {
+    ...task,
+    status,
+    readyApprovalPending: clearReadyApproval ? false : task.readyApprovalPending,
+    version: task.version + 1,
+    updatedAt: now,
+  };
 }
 
 export function mutateTaskForAttachment(task: Task, now: string): Task {
   assertTaskActive(task);
-  return { ...task, version: task.version + 1, updatedAt: now };
+  return {
+    ...task,
+    readyApprovalPending: false,
+    version: task.version + 1,
+    updatedAt: now,
+  };
 }
 
 export function failAutomatedTask(task: Task, now: string): Task {
@@ -261,6 +283,7 @@ export function completeCurationTask(
   task: Task,
   outcome: "ready" | "blocked",
   changes: { readonly title?: string; readonly curatorSpec?: string },
+  readyPolicy: ReadyPolicy,
   now: string,
 ): Task {
   assertTaskActive(task);
@@ -283,7 +306,9 @@ export function completeCurationTask(
     ...task,
     ...(changes.title === undefined ? {} : { title: changes.title }),
     curatorSpec,
-    status: outcome,
+    status:
+      outcome === "ready" && readyPolicy === "manual_approval_required" ? "curating" : outcome,
+    readyApprovalPending: outcome === "ready" && readyPolicy === "manual_approval_required",
     automationPaused: false,
     version: task.version + 1,
     updatedAt: now,

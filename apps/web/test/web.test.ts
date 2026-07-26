@@ -6,6 +6,7 @@ import { filterComboboxOptions } from "../src/components/ui/combobox.tsx";
 import { Select, SelectTrigger, SelectValue } from "../src/components/ui/select.tsx";
 import { ApiError, apiFieldMessage, mapApiError, unauthorizedRedirect } from "../src/lib/api.ts";
 import { preserveConflict } from "../src/lib/conflict.ts";
+import { specLineDiff } from "../src/lib/spec-diff.ts";
 import { formatRelativeAge, shouldRefreshAfterHealth } from "../src/lib/connectivity.tsx";
 import { firstApiErrorPath } from "../src/lib/form-state.tsx";
 import { renderSafeMarkdown } from "../src/lib/markdown.ts";
@@ -135,6 +136,20 @@ describe("Status presentation", () => {
 });
 
 describe("Task Detail presentation", () => {
+  test("builds a bounded review diff between immutable Spec revisions", () => {
+    expect(specLineDiff("# Scope\nKeep\nOld", "# Scope\nKeep\nNew")).toEqual([
+      { kind: "context", text: "Keep" },
+      { kind: "removed", text: "Old" },
+      { kind: "added", text: "New" },
+    ]);
+    const large = specLineDiff(
+      "",
+      Array.from({ length: 250 }, (_, index) => `line ${index}`).join("\n"),
+    );
+    expect(large.some((line) => line.kind === "omitted")).toBe(true);
+    expect(large.length).toBeLessThanOrEqual(202);
+  });
+
   test("selects the active Run before the latest recoverable failure", () => {
     const failed = {
       id: "run_failed",
@@ -172,6 +187,13 @@ describe("Task Detail presentation", () => {
     expect(
       primaryTaskAction({ status: "ready", archivedAt: "2026-07-24T10:00:00.000Z" } as Task),
     ).toEqual({ kind: "restore", label: "Restaurar Task" });
+    expect(
+      primaryTaskAction({
+        status: "curating",
+        archivedAt: null,
+        readyApprovalPending: true,
+      } as Task),
+    ).toMatchObject({ label: "Aprobar y marcar Ready", nextStatus: "ready" });
   });
 
   test("resolves Cycle numbers from current state and cycle_created events", () => {

@@ -68,6 +68,7 @@ import { Skeleton } from "./ui/skeleton.tsx";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip.tsx";
 
 const navigation = [
+  { to: "/attention" as const, label: "Necesita atención", icon: TriangleAlertIcon },
   { to: "/tasks" as const, label: "Tasks", icon: CircleDotIcon },
   { to: "/projects" as const, label: "Projects", icon: FolderGit2Icon },
   { to: "/automation" as const, label: "Automatización", icon: BotIcon },
@@ -129,7 +130,7 @@ function SidebarFooter({
   return (
     <div className="mt-auto space-y-2 border-t p-3">
       <p className={cn("px-2 text-xs text-muted-foreground", collapsed && "lg:sr-only")}>
-        AIWS · v0.6.1
+        AIWS · v0.8.0
       </p>
       <Button
         className={cn("w-full", collapsed ? "lg:justify-center" : "justify-start")}

@@ -30,6 +30,19 @@ aiws --json project update PROJECT_ID \
 Curation puede quedar configurada con Implementation desactivada. Server valida perfiles,
 Projects locales y cron.
 
+Antes de crear la primera Task de un Project gestionado, comprueba su preparación:
+
+```bash
+aiws --json project doctor PROJECT_ID
+aiws --json project doctor PROJECT_ID --deep
+```
+
+La comprobación estándar valida el acceso remoto, los perfiles y la autenticación de modelo sin
+ejecutar el probe dedicado de infraestructura. `--deep` requiere confirmación explícita en Web y
+valida además imagen, red, workspace, toolchain y ciclo de contenedor efímero. El informe no se
+persiste ni crea una Task o un Run. Un informe no preparado se imprime igualmente como JSON y hace
+que el CLI termine con código `6`.
+
 ## Crear y enviar una Task
 
 En Web: **Tasks → Nueva Task**, elige Project, User Request, Base Branch gestionada y Attachments.

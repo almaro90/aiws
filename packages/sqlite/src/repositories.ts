@@ -1,3 +1,4 @@
+import { createVerificationContractRevision } from "@aiws/core";
 import type {
   Page,
   AttachmentId,
@@ -45,6 +46,13 @@ import type {
   Delivery,
   DeliveryId,
   TimelineItem,
+  VerificationContractStore,
+  VerificationContractRevision,
+  VerificationCommand,
+  VerificationResult,
+  VerificationResultStore,
+  RunProvenance,
+  RunProvenanceStore,
 } from "@aiws/core";
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 import { assertPageLimit, decodeCursor, encodeCursor, type CursorContext } from "./cursor.ts";
@@ -114,8 +122,24 @@ interface DeliveryRow {
   readonly branch_name: string | null;
   readonly base_branch: string | null;
   readonly pr_url: string | null;
+  readonly pr_state: string | null;
+  readonly checks_state: string | null;
+  readonly checks_passed: number;
+  readonly checks_failed: number;
+  readonly checks_pending: number;
+  readonly external_updated_at: string | null;
+  readonly last_synchronized_at: string | null;
+  readonly synchronization_error: string | null;
   readonly created_at: string;
   readonly updated_at: string;
+}
+
+interface VerificationContractRevisionRow {
+  readonly project_id: string;
+  readonly revision: number;
+  readonly enabled: number;
+  readonly commands_json: string;
+  readonly created_at: string;
 }
 
 export class SqliteProjectRepository implements ProjectStore {
@@ -196,7 +220,7 @@ export class SqliteProjectRepository implements ProjectStore {
       .query<
         void,
         [
-          string | null,
+          string,
           string,
           string,
           string,
@@ -214,6 +238,7 @@ export class SqliteProjectRepository implements ProjectStore {
           string | null,
           string,
           number,
+          string,
           string,
           string,
           string | null,
@@ -224,8 +249,9 @@ export class SqliteProjectRepository implements ProjectStore {
            repository_mode, connection_id, remote_repository_id, remote_full_name,
            remote_web_url, default_branch, automation_enabled, curation_agent_profile_id,
            implementation_agent_profile_id,
-           schedule_cron, schedule_timezone, max_concurrency, created_at, updated_at, archived_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           schedule_cron, schedule_timezone, max_concurrency, ready_policy,
+           created_at, updated_at, archived_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         project.id,
@@ -246,6 +272,7 @@ export class SqliteProjectRepository implements ProjectStore {
         project.scheduleCron,
         project.scheduleTimezone,
         project.maxConcurrency,
+        project.readyPolicy,
         project.createdAt,
         project.updatedAt,
         project.archivedAt,
@@ -270,6 +297,7 @@ export class SqliteProjectRepository implements ProjectStore {
           string,
           number,
           string,
+          string,
           string | null,
           string,
         ]
@@ -278,7 +306,8 @@ export class SqliteProjectRepository implements ProjectStore {
            name = ?, description = ?, repository_path = ?, git_provider = ?,
            account_scope = ?, default_branch = ?, automation_enabled = ?, curation_agent_profile_id = ?,
            implementation_agent_profile_id = ?,
-           schedule_cron = ?, schedule_timezone = ?, max_concurrency = ?, updated_at = ?, archived_at = ?
+           schedule_cron = ?, schedule_timezone = ?, max_concurrency = ?, ready_policy = ?,
+           updated_at = ?, archived_at = ?
          WHERE id = ?`,
       )
       .run(
@@ -294,6 +323,7 @@ export class SqliteProjectRepository implements ProjectStore {
         project.scheduleCron,
         project.scheduleTimezone,
         project.maxConcurrency,
+        project.readyPolicy,
         project.updatedAt,
         project.archivedAt,
         project.id,
@@ -307,6 +337,58 @@ export class SqliteProjectRepository implements ProjectStore {
       )
       .get(projectId);
     return row?.count ?? 0;
+  }
+}
+
+export class SqliteVerificationContractRepository implements VerificationContractStore {
+  constructor(private readonly database: Database) {}
+
+  async getLatest(projectId: ProjectId): Promise<VerificationContractRevision | null> {
+    const row = this.database
+      .query<VerificationContractRevisionRow, [string]>(
+        `SELECT * FROM verification_contract_revisions
+         WHERE project_id = ? ORDER BY revision DESC LIMIT 1`,
+      )
+      .get(projectId);
+    return row === null ? null : verificationContractFromRow(row);
+  }
+
+  async getRevision(
+    projectId: ProjectId,
+    revision: number,
+  ): Promise<VerificationContractRevision | null> {
+    const row = this.database
+      .query<VerificationContractRevisionRow, [string, number]>(
+        "SELECT * FROM verification_contract_revisions WHERE project_id = ? AND revision = ?",
+      )
+      .get(projectId, revision);
+    return row === null ? null : verificationContractFromRow(row);
+  }
+
+  async list(projectId: ProjectId): Promise<readonly VerificationContractRevision[]> {
+    return this.database
+      .query<VerificationContractRevisionRow, [string]>(
+        `SELECT * FROM verification_contract_revisions
+         WHERE project_id = ? ORDER BY revision DESC`,
+      )
+      .all(projectId)
+      .map(verificationContractFromRow);
+  }
+
+  async insert(value: VerificationContractRevision): Promise<void> {
+    this.database
+      .query<void, [string, number, number, string, string]>(
+        `INSERT INTO verification_contract_revisions(
+           project_id, revision, enabled, commands_json, created_at
+         ) VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(
+        value.projectId,
+        value.revision,
+        value.enabled ? 1 : 0,
+        JSON.stringify(value.commands),
+        value.createdAt,
+      );
   }
 }
 
@@ -408,12 +490,14 @@ export class SqliteTaskRepository implements TaskStore {
           number,
           string,
           string | null,
+          number,
         ]
       >(
         `INSERT INTO tasks(
            id, project_id, title, user_request, curator_spec, status, pr_url, version,
-           created_at, updated_at, archived_at, automation_paused, current_cycle_id, current_delivery_id
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           created_at, updated_at, archived_at, automation_paused, current_cycle_id,
+           current_delivery_id, ready_approval_pending
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         task.id,
@@ -430,6 +514,7 @@ export class SqliteTaskRepository implements TaskStore {
         task.automationPaused ? 1 : 0,
         task.currentCycleId,
         task.currentDeliveryId,
+        task.readyApprovalPending ? 1 : 0,
       );
     this.database
       .query<void, [string, string, string]>(
@@ -457,6 +542,7 @@ export class SqliteTaskRepository implements TaskStore {
           number,
           string,
           string | null,
+          number,
           string,
           number,
           string | null,
@@ -464,7 +550,8 @@ export class SqliteTaskRepository implements TaskStore {
       >(
         `UPDATE tasks SET
            title = ?, user_request = ?, curator_spec = ?, status = ?, pr_url = ?, version = ?,
-           updated_at = ?, archived_at = ?, automation_paused = ?, current_cycle_id = ?, current_delivery_id = ?
+           updated_at = ?, archived_at = ?, automation_paused = ?, current_cycle_id = ?,
+           current_delivery_id = ?, ready_approval_pending = ?
          WHERE id = ? AND version = ?
            AND (archived_at IS NULL OR (? IS NULL AND archived_at IS NOT NULL))`,
       )
@@ -480,6 +567,7 @@ export class SqliteTaskRepository implements TaskStore {
         task.automationPaused ? 1 : 0,
         task.currentCycleId,
         task.currentDeliveryId,
+        task.readyApprovalPending ? 1 : 0,
         task.id,
         expectedVersion,
         task.archivedAt,
@@ -506,6 +594,7 @@ export class SqliteTaskRepository implements TaskStore {
         `SELECT t.* FROM tasks t
          JOIN projects p ON p.id = t.project_id
          WHERE t.status = 'curating' AND t.archived_at IS NULL AND t.automation_paused = 0
+           AND t.ready_approval_pending = 0
            AND p.archived_at IS NULL AND p.repository_mode = 'managed'
            AND p.curation_agent_profile_id IS NOT NULL
          ORDER BY t.created_at ASC, t.id ASC LIMIT ?`,
@@ -975,7 +1064,7 @@ export class SqliteRunRepository implements RunStore {
     return this.database
       .query<RunRow, [string]>(
         `SELECT * FROM runs
-         WHERE status IN ('queued', 'preparing', 'running', 'publishing')
+         WHERE status IN ('queued', 'preparing', 'running', 'verifying', 'publishing')
            AND coalesce(heartbeat_at, created_at) < ?
          ORDER BY created_at ASC, id ASC`,
       )
@@ -986,7 +1075,7 @@ export class SqliteRunRepository implements RunStore {
     return (
       this.database
         .query<{ readonly count: number }, [string]>(
-          "SELECT count(*) AS count FROM runs WHERE project_id = ? AND status IN ('queued', 'preparing', 'running', 'publishing')",
+          "SELECT count(*) AS count FROM runs WHERE project_id = ? AND status IN ('queued', 'preparing', 'running', 'verifying', 'publishing')",
         )
         .get(projectId)?.count ?? 0
     );
@@ -1029,12 +1118,16 @@ export class SqliteRunRepository implements RunStore {
           string | null,
           string | null,
           string | null,
+          string | null,
+          number | null,
+          string | null,
+          string | null,
           string,
           string,
         ]
       >(
-        `INSERT INTO runs(id, task_id, cycle_id, delivery_id, project_id, agent_profile_id, kind, outcome, attempt, status, task_version, execution_stage, resume_from_run_id, branch_name, base_sha, head_sha, pr_url, summary, error_code, error_message, logs_storage_key, heartbeat_at, started_at, finished_at, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO runs(id, task_id, cycle_id, delivery_id, project_id, agent_profile_id, kind, outcome, attempt, status, task_version, execution_stage, resume_from_run_id, branch_name, base_sha, head_sha, pr_url, summary, error_code, error_message, logs_storage_key, heartbeat_at, started_at, finished_at, ready_policy, verification_contract_revision, verification_waiver_run_id, verification_waiver_reason, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         run.id,
@@ -1061,6 +1154,10 @@ export class SqliteRunRepository implements RunStore {
         run.heartbeatAt,
         run.startedAt,
         run.finishedAt,
+        run.readyPolicy,
+        run.verificationContractRevision,
+        run.verificationWaiverRunId,
+        run.verificationWaiverReason,
         run.createdAt,
         run.updatedAt,
       );
@@ -1107,6 +1204,129 @@ export class SqliteRunRepository implements RunStore {
         run.finishedAt,
         run.updatedAt,
         run.id,
+      );
+  }
+}
+
+interface VerificationResultRow {
+  readonly run_id: string;
+  readonly position: number;
+  readonly name: string;
+  readonly executable: string;
+  readonly args_json: string;
+  readonly required: number;
+  readonly status: string;
+  readonly started_at: string;
+  readonly finished_at: string;
+  readonly duration_ms: number;
+  readonly exit_code: number | null;
+  readonly stdout_excerpt: string;
+  readonly stderr_excerpt: string;
+  readonly image_digest: string;
+  readonly toolchain_identity: string;
+}
+
+export class SqliteVerificationResultRepository implements VerificationResultStore {
+  constructor(private readonly database: Database) {}
+
+  async listByRunId(runId: RunId): Promise<readonly VerificationResult[]> {
+    return this.database
+      .query<VerificationResultRow, [string]>(
+        "SELECT * FROM verification_results WHERE run_id = ? ORDER BY position ASC",
+      )
+      .all(runId)
+      .map((row) => ({
+        runId: row.run_id as RunId,
+        position: row.position,
+        name: row.name,
+        executable: row.executable,
+        args: JSON.parse(row.args_json) as string[],
+        required: row.required === 1,
+        status: row.status as VerificationResult["status"],
+        startedAt: row.started_at,
+        finishedAt: row.finished_at,
+        durationMs: row.duration_ms,
+        exitCode: row.exit_code,
+        stdoutExcerpt: row.stdout_excerpt,
+        stderrExcerpt: row.stderr_excerpt,
+        imageDigest: row.image_digest,
+        toolchainIdentity: row.toolchain_identity,
+      }));
+  }
+
+  async insertMany(results: readonly VerificationResult[]): Promise<void> {
+    const statement = this.database.query<
+      void,
+      [
+        string,
+        number,
+        string,
+        string,
+        string,
+        number,
+        string,
+        string,
+        string,
+        number,
+        number | null,
+        string,
+        string,
+        string,
+        string,
+      ]
+    >(
+      `INSERT INTO verification_results(
+         run_id, position, name, executable, args_json, required, status, started_at,
+         finished_at, duration_ms, exit_code, stdout_excerpt, stderr_excerpt,
+         image_digest, toolchain_identity
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    for (const result of results)
+      statement.run(
+        result.runId,
+        result.position,
+        result.name,
+        result.executable,
+        JSON.stringify(result.args),
+        result.required ? 1 : 0,
+        result.status,
+        result.startedAt,
+        result.finishedAt,
+        result.durationMs,
+        result.exitCode,
+        result.stdoutExcerpt,
+        result.stderrExcerpt,
+        result.imageDigest,
+        result.toolchainIdentity,
+      );
+  }
+}
+
+interface RunProvenanceRow {
+  readonly run_id: string;
+  readonly payload_json: string;
+}
+
+export class SqliteRunProvenanceRepository implements RunProvenanceStore {
+  constructor(private readonly database: Database) {}
+  async getByRunId(runId: RunId): Promise<RunProvenance | null> {
+    const row = this.database
+      .query<RunProvenanceRow, [string]>(
+        "SELECT run_id, payload_json FROM run_provenance WHERE run_id = ?",
+      )
+      .get(runId);
+    return row === null ? null : (JSON.parse(row.payload_json) as RunProvenance);
+  }
+  async insert(provenance: RunProvenance): Promise<void> {
+    this.database
+      .query<void, [string, number, string, string]>(
+        "INSERT INTO run_provenance(run_id, schema_version, payload_json, created_at) VALUES (?, ?, ?, ?)",
+      )
+      .run(
+        provenance.runId,
+        provenance.schemaVersion,
+        JSON.stringify(provenance),
+        provenance.createdAt,
       );
   }
 }
@@ -1265,8 +1485,31 @@ export class SqliteDeliveryRepository implements DeliveryStore {
   }
   async insert(value: Delivery): Promise<void> {
     this.database
-      .query<void, [string, string, string | null, string | null, string | null, string, string]>(
-        "INSERT INTO deliveries(id,task_id,branch_name,base_branch,pr_url,created_at,updated_at) VALUES (?,?,?,?,?,?,?)",
+      .query<
+        void,
+        [
+          string,
+          string,
+          string | null,
+          string | null,
+          string | null,
+          string | null,
+          string | null,
+          number,
+          number,
+          number,
+          string | null,
+          string | null,
+          string | null,
+          string,
+          string,
+        ]
+      >(
+        `INSERT INTO deliveries(
+           id,task_id,branch_name,base_branch,pr_url,pr_state,checks_state,
+           checks_passed,checks_failed,checks_pending,external_updated_at,
+           last_synchronized_at,synchronization_error,created_at,updated_at
+         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       )
       .run(
         value.id,
@@ -1274,16 +1517,57 @@ export class SqliteDeliveryRepository implements DeliveryStore {
         value.branchName,
         value.baseBranch,
         value.prUrl,
+        value.prState,
+        value.checksState,
+        value.checksPassed,
+        value.checksFailed,
+        value.checksPending,
+        value.externalUpdatedAt,
+        value.lastSynchronizedAt,
+        value.synchronizationError,
         value.createdAt,
         value.updatedAt,
       );
   }
   async update(value: Delivery): Promise<void> {
     this.database
-      .query<void, [string | null, string | null, string | null, string, string]>(
-        "UPDATE deliveries SET branch_name=?,base_branch=?,pr_url=?,updated_at=? WHERE id=?",
+      .query<
+        void,
+        [
+          string | null,
+          string | null,
+          string | null,
+          string | null,
+          string | null,
+          number,
+          number,
+          number,
+          string | null,
+          string | null,
+          string | null,
+          string,
+          string,
+        ]
+      >(
+        `UPDATE deliveries SET branch_name=?,base_branch=?,pr_url=?,pr_state=?,checks_state=?,
+         checks_passed=?,checks_failed=?,checks_pending=?,external_updated_at=?,
+         last_synchronized_at=?,synchronization_error=?,updated_at=? WHERE id=?`,
       )
-      .run(value.branchName, value.baseBranch, value.prUrl, value.updatedAt, value.id);
+      .run(
+        value.branchName,
+        value.baseBranch,
+        value.prUrl,
+        value.prState,
+        value.checksState,
+        value.checksPassed,
+        value.checksFailed,
+        value.checksPending,
+        value.externalUpdatedAt,
+        value.lastSynchronizedAt,
+        value.synchronizationError,
+        value.updatedAt,
+        value.id,
+      );
   }
 }
 
@@ -1404,6 +1688,22 @@ function specFromRow(row: SpecRevisionRow): SpecRevision {
     createdAt: row.created_at,
   };
 }
+
+function verificationContractFromRow(
+  row: VerificationContractRevisionRow,
+): VerificationContractRevision {
+  const commands: unknown = JSON.parse(row.commands_json);
+  if (!Array.isArray(commands)) {
+    throw new Error(`Verification Contract revision ${row.revision} has invalid commands.`);
+  }
+  return createVerificationContractRevision({
+    projectId: row.project_id as ProjectId,
+    revision: row.revision,
+    enabled: row.enabled === 1,
+    commands: commands as VerificationCommand[],
+    now: row.created_at,
+  });
+}
 function answerFromRow(row: QuestionAnswerRow): QuestionAnswerSnapshot {
   return {
     id: row.id as QuestionAnswerId,
@@ -1422,6 +1722,14 @@ function deliveryFromRow(row: DeliveryRow): Delivery {
     branchName: row.branch_name,
     baseBranch: row.base_branch,
     prUrl: row.pr_url,
+    prState: row.pr_state as Delivery["prState"],
+    checksState: row.checks_state as Delivery["checksState"],
+    checksPassed: row.checks_passed,
+    checksFailed: row.checks_failed,
+    checksPending: row.checks_pending,
+    externalUpdatedAt: row.external_updated_at,
+    lastSynchronizedAt: row.last_synchronized_at,
+    synchronizationError: row.synchronization_error,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

@@ -584,3 +584,47 @@ versiones distintas, reautorizaciones y perfiles ausentes/deshabilitados son war
 Configuración/auth inválida usa exit 3; Server unhealthy/respuesta inválida, 6; red/timeout, 7.
 Incluso al fallar, `--json` escribe el diagnóstico en stdout y nunca incluye tokens, credenciales
 ni rutas sensibles.
+
+## 19. Project Readiness
+
+```bash
+aiws project doctor PROJECT_ID
+aiws --json project doctor PROJECT_ID --deep
+```
+
+El modo estándar no ejecuta el probe dedicado de infraestructura. `--deep` solicita el probe
+acotado del runner. Un informe con `ok=false` usa exit 6 y conserva el JSON completo en stdout.
+
+## 20. Ready Policy
+
+```bash
+aiws project update PROJECT_ID --ready-policy manual-approval-required
+aiws task transition TASK_ID --from curating --to ready --expected-version VERSION
+```
+
+El flag usa kebab-case en CLI y valores snake_case en JSON. La transición existente representa la
+aprobación manual explícita; no se añade un comando de identidad humana.
+## Verification Contract
+
+- `aiws project verification get <projectId>`
+- `aiws project verification history <projectId>`
+- `aiws project verification set <projectId> --file <json> --expected-revision <n|none>`
+- `aiws project verification disable <projectId> --expected-revision <n>`
+
+Los comandos JSON contienen `name`, `executable`, `args`, `required` y `timeoutSeconds`.
+## Evidencia y waiver
+
+- `aiws run verification <runId>`
+- `aiws run provenance <runId>`
+- `aiws run waive-verification <runId> --task-version <n> --reason <texto>`
+
+El último comando solo solicita el nuevo attempt; runner valida después workspace limpio y SHA.
+
+## Operación v0.7–v0.8
+
+- `aiws attention list`
+- `aiws delivery show <deliveryId>`
+- `aiws delivery refresh <deliveryId>`
+- `aiws project metrics <projectId> --from <UTC> --to <UTC>`
+
+Las métricas se emiten como JSON completo con `--json`; no existe dashboard agregado en v0.8.

@@ -212,3 +212,50 @@ Una decisión que afecte alguno de estos puntos requiere actualizar el pack y ap
 | Git sin secretos | credenciales basic/bearer | argv/env/log tests |
 | Pull request draft | Azure REST 7.1 | nuevo/existente/refs/footer |
 | Superficies | API/CLI/Web | contrato generado + Playwright |
+
+## Cobertura Project Readiness — Hito 25
+
+| Requisito | Superficie | Evidencia |
+| --- | --- | --- |
+| Informe efímero | `ProjectReadinessService` | cero escrituras y respuesta determinista |
+| Provider-neutral | registry GitHub/Azure | adapters con repo/rama/credenciales |
+| Probe profundo | runner control interno | seams fake, timeout y cleanup |
+| Operación segura | API/CLI/Web | auth, confirmación, JSON y redacción |
+| Piloto real | playbooks protegidos | ejecución manual sin secretos en logs |
+
+## Cobertura Ready Policy — Hito 26
+
+| Requisito | Superficie | Evidencia |
+| --- | --- | --- |
+| Configuración futura | `Project.readyPolicy` | Core/SQLite/API y backfill |
+| Snapshot histórico | `Run.readyPolicy` | claim, cambio de Project y Retry |
+| Preparación sin estado nuevo | `Task.readyApprovalPending` | curation/claims/questions/cycles |
+| Aprobación explícita | Curating → Ready | concurrencia, eventos, CLI y Web |
+## Trazabilidad Hito 27
+
+| Requisito | Evidencia |
+| --- | --- |
+| Contrato append-only por Project | Core, migración 0012 y pruebas SQLite |
+| Concurrencia por revisión esperada | caso de uso y pruebas de dos writers |
+| Snapshot en Implementation Run | `runs.verification_contract_revision` y test de claim |
+| Sin shell ni secretos configurables | schemas cerrados, validación Core y OpenAPI |
+## Trazabilidad Hito 28
+
+| Requisito | Evidencia |
+| --- | --- |
+| Verificación antes de publicar | estado Run `verifying` y tests runner |
+| Evidencia inmutable | migración 0013, triggers y API read-only |
+| Required fail y optional warning | Core/SQLite integration |
+| Waiver explícito y seguro | enlace de attempt, versión, motivo y validación Git |
+| Provenance sanitizada | schema cerrado, redacción y tests de ausencia de secretos/rutas |
+
+## Trazabilidad Hitos 29–31
+
+| Requisito | Evidencia |
+| --- | --- |
+| Atención accionable sin estado nuevo | `AttentionService`, API/CLI/Web y tests de precedencia |
+| Estado Git informativo | migración 0014, seam provider y tests GitHub/Azure |
+| Error externo conserva evidencia | servicio de proyección y test de staleness/redacción |
+| Métricas locales reproducibles | `ProductMetricsService`, API/CLI y test sin escrituras |
+| Cobertura explícita | bloque `coverage` y `staleDeliveries` en OpenAPI |
+| Decisión de Spec revisable | `TaskAggregate.specRevisions`, diff Web acotado y test |

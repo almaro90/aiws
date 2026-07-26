@@ -13,6 +13,7 @@ import {
   ConnectionUseCases,
   RunUseCases,
   MessageUseCases,
+  VerificationContractUseCases,
 } from "@aiws/core";
 import { FileAttachmentBlobStore, openDatabase, SqliteUnitOfWork } from "@aiws/sqlite";
 import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
@@ -22,6 +23,7 @@ import { generateKeyPairSync } from "node:crypto";
 import { createApp } from "../src/http/app.ts";
 import { GitHubAppGateway } from "../src/integrations/github-app.ts";
 import type { LogEntry, Logger } from "../src/logging/logger.ts";
+import type { ProductMetricsService } from "../src/metrics.ts";
 import { RepositoryValidator } from "../src/repositories/repository-validator.ts";
 import { RunnerActivityMonitor } from "../src/runner-activity.ts";
 
@@ -60,6 +62,121 @@ afterAll(async () => {
 });
 
 describe("Hito 3 server", () => {
+  test("exposes authenticated Project metrics with strict UTC ranges", async () => {
+    const calls: unknown[][] = [];
+    const fixture = await createFixture({
+      metrics: {
+        project: (...arguments_) => {
+          calls.push(arguments_);
+          return {
+            projectId: arguments_[0],
+            from: arguments_[1],
+            to: arguments_[2],
+            generatedAt: "2026-07-21T12:00:00.000Z",
+            coverage: {
+              tasks: 0,
+              readySamples: 0,
+              runs: 0,
+              runsWithProvenance: 0,
+              deliveries: 0,
+              deliveriesObserved: 0,
+              staleDeliveries: 0,
+            },
+            flow: {
+              requestToReadyAverageMs: null,
+              blockedDurationMs: 0,
+              blockedSamples: 0,
+              questions: 0,
+            },
+            runs: {
+              curation: { count: 0, completedSamples: 0, averageDurationMs: null },
+              implementation: { count: 0, completedSamples: 0, averageDurationMs: null },
+              firstAttemptSucceeded: 0,
+              firstAttempts: 0,
+            },
+            retries: { full: 0, publishOnly: 0, waiver: 0 },
+            verification: { passed: 0, failed: 0, requiredFailed: 0 },
+            delivery: { pullRequests: 0, mergedObserved: 0 },
+          };
+        },
+      },
+    });
+    try {
+      const projectId = "prj_00000000000000000000000000";
+      const from = "2026-01-01T00:00:00.000Z";
+      const to = "2026-02-01T00:00:00.000Z";
+      const response = await fixture.app.request(
+        `/api/v1/projects/${projectId}/metrics?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+        bearer(),
+      );
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ projectId, from, to });
+      expect(calls).toEqual([[projectId, from, to]]);
+
+      const invalid = await fixture.app.request(
+        `/api/v1/projects/${projectId}/metrics?from=2026-01-01&to=${encodeURIComponent(to)}`,
+        bearer(),
+      );
+      expect(invalid.status).toBe(422);
+      const anonymous = await fixture.app.request(
+        `/api/v1/projects/${projectId}/metrics?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+      );
+      expect(anonymous.status).toBe(401);
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  test("exposes authenticated standard and deep Project Readiness reports", async () => {
+    const calls: Array<{ readonly projectId: string; readonly depth: string }> = [];
+    const fixture = await createFixture({
+      projectReadiness: {
+        check: async (projectId, depth) => {
+          calls.push({ projectId, depth });
+          return {
+            projectId,
+            depth,
+            checkedAt: "2026-07-21T12:00:00.000Z",
+            durationMs: 4,
+            ok: true,
+            checks: [
+              {
+                id: "runner",
+                status: "pass",
+                message: "Runner is online.",
+                details: { status: "online" },
+              },
+            ],
+          };
+        },
+      },
+    });
+    try {
+      const projectId = "prj_00000000000000000000000000";
+      const response = await fixture.app.request(
+        `/api/v1/projects/${projectId}/readiness-check`,
+        jsonRequest("POST", { depth: "deep" }),
+      );
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ projectId, depth: "deep", ok: true });
+      expect(calls).toEqual([{ projectId, depth: "deep" }]);
+
+      const invalid = await fixture.app.request(
+        `/api/v1/projects/${projectId}/readiness-check`,
+        jsonRequest("POST", { depth: "unsafe" }),
+      );
+      expect(invalid.status).toBe(422);
+      const anonymous = await fixture.app.request(`/api/v1/projects/${projectId}/readiness-check`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      expect(anonymous.status).toBe(401);
+    } finally {
+      await fixture.close();
+    }
+  });
+
   test("lists GitHub branches and snapshots the selected branch when creating a Task", async () => {
     const fixture = await createFixture({ github: githubWithBranches(["main", "release/next"]) });
     try {
@@ -513,7 +630,7 @@ describe("Hito 3 server", () => {
     try {
       const health = await fixture.app.request("/api/v1/health");
       expect(health.status).toBe(200);
-      expect(await health.json()).toEqual({ status: "ok", version: "0.6.1" });
+      expect(await health.json()).toEqual({ status: "ok", version: "0.8.0" });
       expect(health.headers.get("X-Request-Id")).toStartWith("req_");
       expect(health.headers.get("Content-Security-Policy")).not.toContain("unsafe-eval");
       expect(health.headers.get("X-Content-Type-Options")).toBe("nosniff");
@@ -552,7 +669,7 @@ describe("Hito 3 server", () => {
     try {
       const response = await fixture.app.request("/api/v1/health");
       expect(response.status).toBe(503);
-      expect(await response.json()).toEqual({ status: "unhealthy", version: "0.6.1" });
+      expect(await response.json()).toEqual({ status: "unhealthy", version: "0.8.0" });
     } finally {
       await fixture.close();
     }
@@ -670,12 +787,14 @@ describe("Hito 3 server", () => {
         repositoryPath: string;
         curationAgentProfileId: string | null;
         implementationAgentProfileId: string | null;
+        readyPolicy: string;
         agentProfileId?: string | null;
       };
       expect(created.id).toMatch(/^prj_[0-9A-HJKMNP-TV-Z]{26}$/);
       expect(created.repositoryPath).toBe(fixture.repository);
       expect(created.curationAgentProfileId).toBeNull();
       expect(created.implementationAgentProfileId).toBeNull();
+      expect(created.readyPolicy).toBe("curator_decides");
       expect(created.agentProfileId).toBeUndefined();
 
       const duplicate = await fixture.app.request(
@@ -694,10 +813,16 @@ describe("Hito 3 server", () => {
 
       const updated = await fixture.app.request(
         `/api/v1/projects/${created.id}`,
-        jsonRequest("PATCH", { name: "Renamed" }),
+        jsonRequest("PATCH", {
+          name: "Renamed",
+          readyPolicy: "manual_approval_required",
+        }),
       );
       expect(updated.status).toBe(200);
-      expect(((await updated.json()) as { name: string }).name).toBe("Renamed");
+      expect(await updated.json()).toMatchObject({
+        name: "Renamed",
+        readyPolicy: "manual_approval_required",
+      });
 
       const archived = await fixture.app.request(`/api/v1/projects/${created.id}/archive`, {
         method: "POST",
@@ -733,6 +858,63 @@ describe("Hito 3 server", () => {
       );
       expect(missing.status).toBe(404);
       expect(await errorCode(missing)).toBe("not_found");
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  test("manages an append-only Verification Contract with revision conflicts", async () => {
+    const fixture = await createFixture();
+    try {
+      const created = await fixture.projects.create({
+        name: "Verification API",
+        repositoryPath: fixture.repository,
+        gitProvider: "github",
+        accountScope: "work",
+      });
+      const command = {
+        name: "tests",
+        executable: "bun",
+        args: ["test"],
+        required: true,
+        timeoutSeconds: 300,
+      };
+      const initial = await fixture.app.request(
+        `/api/v1/projects/${created.id}/verification-contract`,
+        jsonRequest("PUT", { expectedRevision: null, commands: [command] }),
+      );
+      expect(initial.status).toBe(200);
+      expect(await initial.json()).toMatchObject({
+        latestRevision: 1,
+        active: { revision: 1, commands: [command] },
+      });
+
+      const stale = await fixture.app.request(
+        `/api/v1/projects/${created.id}/verification-contract`,
+        jsonRequest("PUT", { expectedRevision: null, commands: [command] }),
+      );
+      expect(stale.status).toBe(409);
+      expect(await errorCode(stale)).toBe("revision_conflict");
+
+      const disabled = await fixture.app.request(
+        `/api/v1/projects/${created.id}/verification-contract/disable`,
+        jsonRequest("POST", { expectedRevision: 1 }),
+      );
+      expect(disabled.status).toBe(200);
+      expect(await disabled.json()).toEqual({
+        projectId: created.id,
+        latestRevision: 2,
+        active: null,
+      });
+      const history = await fixture.app.request(
+        `/api/v1/projects/${created.id}/verification-contract/revisions`,
+        bearer(),
+      );
+      expect(history.status).toBe(200);
+      expect(await history.json()).toMatchObject([
+        { revision: 2, enabled: false },
+        { revision: 1, enabled: true },
+      ]);
     } finally {
       await fixture.close();
     }
@@ -904,7 +1086,7 @@ describe("Hito 3 server", () => {
       expect((await fixture.app.request("/api/v1/openapi.json")).status).toBe(401);
       const response = await fixture.app.request("/api/v1/openapi.json", bearer());
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({ openapi: "3.1.0", info: { version: "0.6.1" } });
+      expect(await response.json()).toEqual({ openapi: "3.1.0", info: { version: "0.6.2" } });
     } finally {
       await fixture.close();
     }
@@ -1034,6 +1216,7 @@ describe("Hito 4 Tasks and Activity", () => {
         version: 1,
         questions: [],
         attachments: [],
+        specRevisions: [],
       });
 
       const questionId = fixture.ids.questionId();
@@ -1085,6 +1268,7 @@ describe("Hito 4 Tasks and Activity", () => {
       const aggregate = (await shown.json()) as {
         questions: { id: string; options: unknown[] }[];
         attachments: { id: string; downloadUrl: string }[];
+        specRevisions: unknown[];
       };
       expect(aggregate.questions).toEqual([
         expect.objectContaining({ id: questionId, options: expect.any(Array) }),
@@ -1095,6 +1279,7 @@ describe("Hito 4 Tasks and Activity", () => {
           downloadUrl: `/api/v1/tasks/${task.body.id}/attachments/${attachmentId}/content`,
         }),
       ]);
+      expect(aggregate.specRevisions).toEqual([]);
 
       const listed = await fixture.app.request(
         `/api/v1/tasks?projectId=${project.id}&status=draft&status=ready&sort=createdAt&order=asc`,
@@ -1690,6 +1875,25 @@ async function createFixture(
     modelCatalog?: {
       list: () => Promise<ReturnType<typeof profileSelection>["catalog"]>;
     } | null;
+    projectReadiness?: {
+      check: (
+        projectId: ProjectId,
+        depth: "standard" | "deep",
+      ) => Promise<{
+        projectId: ProjectId;
+        depth: "standard" | "deep";
+        checkedAt: string;
+        durationMs: number;
+        ok: boolean;
+        checks: readonly {
+          id: string;
+          status: "pass" | "warning" | "fail" | "skipped";
+          message: string;
+          details: Readonly<Record<string, string | number | boolean | null>>;
+        }[];
+      }>;
+    };
+    metrics?: Pick<ProductMetricsService, "project">;
     runnerActivity?: RunnerActivityMonitor;
     github?: GitHubAppGateway;
     notificationSettings?: {
@@ -1751,6 +1955,7 @@ async function createFixture(
       maximumAttachmentBytes: overrides.maximumAttachmentBytes ?? 26_214_400,
     },
   );
+  const verificationContracts = new VerificationContractUseCases(unitOfWork, { clock, ids });
   const repositoryValidator = await RepositoryValidator.create([root]);
   const app = createApp({
     projects,
@@ -1761,8 +1966,9 @@ async function createFixture(
     agentProfiles,
     runs,
     messages,
+    verificationContracts,
     repositoryValidator,
-    openApiDocument: { openapi: "3.1.0", info: { version: "0.6.1" } },
+    openApiDocument: { openapi: "3.1.0", info: { version: "0.6.2" } },
     healthCheck: overrides.healthCheck ?? (() => true),
     logger: overrides.logger ?? new MemoryLogger(),
     publicUrl: overrides.publicUrl ?? "http://localhost:3000",
@@ -1783,6 +1989,10 @@ async function createFixture(
             list: async () => profileSelection().catalog,
           },
         }),
+    ...(overrides.projectReadiness === undefined
+      ? {}
+      : { projectReadiness: overrides.projectReadiness }),
+    ...(overrides.metrics === undefined ? {} : { metrics: overrides.metrics }),
     repositoriesDir: join(directory, "managed-repositories"),
     runLogsDirectory: join(directory, "run-logs"),
     sessionTtlSeconds: 3600,

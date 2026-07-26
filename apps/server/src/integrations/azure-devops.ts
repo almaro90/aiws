@@ -691,6 +691,83 @@ export class AzureDevOpsProvider implements ManagedGitProvider {
     return pullRequestWebUrl(created);
   }
 
+  async observeDelivery(
+    connection: Connection,
+    repository: string,
+    repositoryId: string,
+    prUrl: string,
+    headSha: string | null,
+  ): Promise<import("./managed-git-provider.ts").ExternalDeliveryObservation> {
+    const azure = azureConnection(connection);
+    const projectName = repository.split("/")[0];
+    const pullRequestId = prUrl.match(/\/pullrequest\/(\d+)\/?$/u)?.[1];
+    if (projectName === undefined || pullRequestId === undefined)
+      throw new Error("Azure DevOps pull request identity is invalid.");
+    const prefix =
+      `/${encodeURIComponent(azure.organizationName)}/${encodeURIComponent(projectName)}` +
+      `/_apis/git/repositories/${encodeURIComponent(repositoryId)}`;
+    const pull = record(
+      await this.api(
+        connection,
+        `${prefix}/pullrequests/${encodeURIComponent(pullRequestId)}?api-version=7.1`,
+      ),
+      "Azure DevOps pull request",
+    );
+    const sha =
+      headSha ??
+      (typeof pull.lastMergeSourceCommit === "object" &&
+      pull.lastMergeSourceCommit !== null &&
+      "commitId" in pull.lastMergeSourceCommit &&
+      typeof pull.lastMergeSourceCommit.commitId === "string"
+        ? pull.lastMergeSourceCommit.commitId
+        : null);
+    const statuses =
+      sha === null
+        ? []
+        : array(
+            record(
+              await this.api(
+                connection,
+                `${prefix}/commits/${encodeURIComponent(sha)}/statuses?api-version=7.1`,
+              ),
+              "Azure DevOps statuses",
+            ).value,
+            "Azure DevOps statuses",
+          ).map((item) => record(item, "Azure DevOps status"));
+    const checksPending = statuses.filter((status) => status.state === "pending").length;
+    const checksPassed = statuses.filter(
+      (status) => status.state === "succeeded" || status.state === "notApplicable",
+    ).length;
+    const checksFailed = statuses.length - checksPending - checksPassed;
+    return {
+      prState:
+        pull.status === "completed"
+          ? "merged"
+          : pull.status === "abandoned"
+            ? "closed"
+            : pull.isDraft === true
+              ? "draft"
+              : "open",
+      checksPassed,
+      checksFailed,
+      checksPending,
+      checksState:
+        statuses.length === 0
+          ? "unknown"
+          : checksFailed > 0
+            ? "failed"
+            : checksPending > 0
+              ? "pending"
+              : "passed",
+      externalUpdatedAt:
+        typeof pull.closedDate === "string"
+          ? pull.closedDate
+          : typeof pull.creationDate === "string"
+            ? pull.creationDate
+            : null,
+    };
+  }
+
   private async api(
     connection: Connection,
     path: string,

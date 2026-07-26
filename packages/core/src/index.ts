@@ -25,6 +25,20 @@ export type {
   TimelinePage,
 } from "./domain/cycle.ts";
 export {
+  createVerificationContractRevision,
+  verificationContractState,
+  type VerificationCommand,
+  type VerificationContractRevision,
+  type VerificationContractState,
+} from "./domain/verification.ts";
+export {
+  validateVerificationResults,
+  VERIFICATION_RESULT_STATUSES,
+  type VerificationResult,
+  type VerificationResultStatus,
+  type RunProvenance,
+} from "./domain/run-evidence.ts";
+export {
   createAgentProfile,
   createConnection,
   createRun,
@@ -65,6 +79,7 @@ export {
   assertProjectActive,
   createProject,
   GIT_PROVIDERS,
+  READY_POLICIES,
   isValidGitBranchName,
   unarchiveProject,
   updateProject,
@@ -73,6 +88,7 @@ export {
   type NewProject,
   type Project,
   type ProjectChanges,
+  type ReadyPolicy,
 } from "./domain/project.ts";
 export {
   ACTOR_TYPES,
@@ -116,6 +132,7 @@ export {
   UnsupportedMediaTypeError,
   ValidationError,
   VersionConflictError,
+  RevisionConflictError,
   type ValidationIssue,
 } from "./errors/domain-errors.ts";
 export { SystemClock, type Clock } from "./ports/clock.ts";
@@ -126,6 +143,7 @@ export type {
   StoredAttachment,
   ProjectListQuery,
   ProjectStore,
+  VerificationContractStore,
   QuestionStore,
   Stores,
   TaskEventListQuery,
@@ -137,6 +155,8 @@ export type {
   ConnectionStore,
   AgentProfileStore,
   RunStore,
+  VerificationResultStore,
+  RunProvenanceStore,
   CycleStore,
   MessageStore,
   SpecRevisionStore,
@@ -189,3 +209,4 @@ export {
   type RunAssignment,
 } from "./use-cases/automation.ts";
 export { MessageUseCases } from "./use-cases/messages.ts";
+export { VerificationContractUseCases } from "./use-cases/verification.ts";

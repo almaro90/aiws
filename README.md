@@ -1,6 +1,6 @@
 ![Banner de AIWS con el recorrido visual desde una petición curada hasta su implementación en un repositorio local](./docs/assets/aiws-banner.png)
 
-# AIWS v0.6.1
+# AIWS v0.8.0
 
 AIWS es un gestor de tareas local y AI-first preparado para que personas y agentes externos trabajen sobre repositorios locales con un workflow seguro y trazable.
 
@@ -33,6 +33,10 @@ Project gestionado.
 - Después de Done, la persona puede solicitar otro cambio sobre la misma Task; AIWS crea un Cycle y vuelve a Curating sin saltarse al curator.
 - Agentes como Codex, Hermes Agent u OpenClaw siguen el mismo workflow mediante el CLI JSON y la skill incluida.
 - Cada cambio de estado puede publicarse en un canal global ntfy sin bloquear el workflow si la red falla.
+- Cada Project puede comprobar su readiness y exigir un Verification Contract versionado antes de
+  publicar.
+- Cada Run conserva evidencia verificable y provenance; la bandeja Necesita atención agrupa las
+  intervenciones y Delivery observa PR/checks sin cambiar el estado de Task.
 
 ## Workflow de una Task
 
@@ -54,12 +58,12 @@ worktree efímero y publica mediante credenciales de vida corta.
 ## Instalación publicada
 
 AIWS y su CLI tienen ciclos independientes. Para instalar el stack sin Bun ni checkout, descargar
-`aiws-deployment-v0.6.1.tar.gz` desde GitHub Releases, extraerlo en un directorio vacío y seguir su
+`aiws-deployment-v0.8.0.tar.gz` desde GitHub Releases, extraerlo en un directorio vacío y seguir su
 `README.md`. El bundle consume estas imágenes multi-arquitectura:
 
-- `ghcr.io/almaro90/aiws:0.6.1`
-- `ghcr.io/almaro90/aiws-runner-manager:0.6.1`
-- `ghcr.io/almaro90/aiws-agent:0.6.1`
+- `ghcr.io/almaro90/aiws:0.8.0`
+- `ghcr.io/almaro90/aiws-runner-manager:0.8.0`
+- `ghcr.io/almaro90/aiws-agent:0.8.0`
 
 El puerto queda ligado a loopback. El operador aporta HTTPS, conserva los volúmenes y configura
 GitHub/Codex solo cuando usa repositorios gestionados.
@@ -109,8 +113,8 @@ Bun 1.3.11 solo es necesario para desarrollar AIWS o ejecutar el CLI desde fuent
 Desde el checkout de AIWS:
 
 ```bash
-docker build -t aiws:0.6.1 .
-docker build --target agent -t aiws-agent:0.6.1 .
+docker build -t aiws:0.8.0 .
+docker build --target agent -t aiws-agent:0.8.0 .
 cp .env.example .env
 ```
 
@@ -119,13 +123,13 @@ cp .env.example .env
 Generar cada valor sin escribirlo automáticamente a disco:
 
 ```bash
-docker run --rm -i aiws:0.6.1 hash-password
-docker run --rm aiws:0.6.1 generate-session-secret
-docker run --rm aiws:0.6.1 generate-api-token
-docker run --rm aiws:0.6.1 generate-runner-token
-docker run --rm aiws:0.6.1 generate-runner-control-secret
-docker run --rm aiws:0.6.1 generate-notification-encryption-key
-docker run --rm aiws:0.6.1 generate-connection-encryption-key
+docker run --rm -i aiws:0.8.0 hash-password
+docker run --rm aiws:0.8.0 generate-session-secret
+docker run --rm aiws:0.8.0 generate-api-token
+docker run --rm aiws:0.8.0 generate-runner-token
+docker run --rm aiws:0.8.0 generate-runner-control-secret
+docker run --rm aiws:0.8.0 generate-notification-encryption-key
+docker run --rm aiws:0.8.0 generate-connection-encryption-key
 ```
 
 - `hash-password` solicita la contraseña del administrador y devuelve su hash Argon2id.
@@ -168,7 +172,7 @@ curl http://127.0.0.1:3000/api/v1/health
 La respuesta esperada es:
 
 ```json
-{"status":"ok","version":"0.6.1"}
+{"status":"ok","version":"0.8.0"}
 ```
 
 Abrir `http://localhost:3000` e iniciar sesión con `AIWS_ADMIN_USERNAME` y la contraseña original usada para generar el hash.
@@ -178,7 +182,7 @@ Abrir `http://localhost:3000` e iniciar sesión con `AIWS_ADMIN_USERNAME` y la c
 La imagen contiene un binario nativo para la arquitectura con la que se construyó. Extraerlo sin instalar Bun:
 
 ```bash
-docker create --name aiws-cli-copy aiws:0.6.1
+docker create --name aiws-cli-copy aiws:0.8.0
 docker cp aiws-cli-copy:/app/aiws ./aiws
 docker rm aiws-cli-copy
 chmod 0755 ./aiws
@@ -362,9 +366,9 @@ sistema y alcanzar AIWS por HTTP. La skill no instala binarios ni gestiona crede
 Instalar desde el tag fijado:
 
 ```bash
-git clone --depth 1 --branch v0.6.1 https://github.com/almaro90/aiws.git /tmp/aiws-v0.6.1
+git clone --depth 1 --branch v0.8.0 https://github.com/almaro90/aiws.git /tmp/aiws-v0.8.0
 mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
-cp -R /tmp/aiws-v0.6.1/skills/aiws-workflow \
+cp -R /tmp/aiws-v0.8.0/skills/aiws-workflow \
   "${CODEX_HOME:-$HOME/.codex}/skills/aiws-workflow"
 ```
 
@@ -374,7 +378,7 @@ La skill estará disponible en un turno o sesión nueva como `$aiws-workflow`.
 
 ```bash
 hermes skills install \
-  https://raw.githubusercontent.com/almaro90/aiws/v0.6.1/skills/aiws-workflow/SKILL.md
+  https://raw.githubusercontent.com/almaro90/aiws/v0.8.0/skills/aiws-workflow/SKILL.md
 ```
 
 Iniciar una sesión nueva y pedir a Hermes que use `aiws-workflow`. Véase la
@@ -386,8 +390,8 @@ La instalación Git de OpenClaw espera `SKILL.md` en la raíz, por lo que se fij
 instala su subdirectorio local:
 
 ```bash
-git clone --depth 1 --branch v0.6.1 https://github.com/almaro90/aiws.git /tmp/aiws-v0.6.1
-openclaw skills install /tmp/aiws-v0.6.1/skills/aiws-workflow \
+git clone --depth 1 --branch v0.8.0 https://github.com/almaro90/aiws.git /tmp/aiws-v0.8.0
+openclaw skills install /tmp/aiws-v0.8.0/skills/aiws-workflow \
   --as aiws-workflow --global
 ```
 

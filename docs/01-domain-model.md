@@ -511,3 +511,52 @@ Un Project gestionado deriva `gitProvider` de su Connection. Su `remoteRepositor
 identificador remoto sin reinterpretarlo: decimal para GitHub o UUID para Azure. El nombre completo
 Azure es `projectName/repositoryName`. Las credenciales OAuth y access tokens no pertenecen al
 dominio ni se exponen en DTOs.
+
+## Project Readiness — Hito 25
+
+Project Readiness es un diagnóstico efímero de infraestructura, no una entidad, un Run ni una
+mutación del agregado Task. Solo admite Projects gestionados. Un fallo no pausa automatización ni
+altera Project, Task Status, Cycle o Delivery. El informe describe únicamente el instante observado
+y nunca se reutiliza como autorización futura.
+
+## Ready Policy y aprobación preparada — Hito 26
+
+`Project.readyPolicy` admite `curator_decides` y `manual_approval_required`. Es configuración para
+Runs futuros: cada Run de Curation captura su valor y no se reinterpreta si el Project cambia.
+
+`Task.readyApprovalPending` no es un estado nuevo. Solo puede estar activo en Curating y significa
+que una Curation válida ya aplicó la Curator Spec, pero la política capturada exige una transición
+manual explícita. Esa Task no es candidata para otra Curation. Web y CLI pueden consumir la
+aprobación; no se afirma identidad humana verificable.
+
+Crear o reabrir una Question, añadir contexto que invalida la preparación o crear un Cycle limpia
+el flag. Una Curation con política manual termina con `Run.outcome=approval_required`.
+## Extensión Hito 27 — Verification Contract
+
+`VerificationContractRevision` pertenece a un único Project. Sus revisiones son append-only,
+monótonas e inmutables. Una revisión activa contiene comandos ordenados; una revisión desactivada
+conserva la historia y deja al Project sin contrato efectivo.
+
+Cada comando define `name`, `executable`, `args`, `required` y `timeoutSeconds`. No existe override
+por Task o Delivery. Un Run de Implementation captura `verificationContractRevision` al claim y
+nunca se reinterpreta por cambios posteriores.
+## Extensión Hito 28 — Evidence, waiver y provenance
+
+Un Run de Implementation pasa por `verifying` después de producir un commit local y antes de
+`publishing`. `VerificationResult` es evidencia append-only por comando. Un fallo required falla el
+Run con `verification_failed`, devuelve la Task a Ready y pausa automatización; un fallo opcional es
+warning.
+
+`waive_verification` crea un nuevo attempt enlazado al Run fallido, conserva la evidencia anterior y
+solo puede continuar desde su commit si el workspace sigue presente, limpio y en el `headSha`
+esperado. `RunProvenance` es una fotografía inmutable y sanitizada de la configuración efectiva.
+
+## Extensión Hitos 29–31 — proyecciones operativas
+
+`AttentionItem` es una proyección efímera y deduplicada de hechos accionables; no es un agregado ni
+añade prioridad, asignación o acknowledgement. `Delivery` conserva la última observación externa de
+PR y checks, pero nunca gobierna `Task.status`.
+
+Las métricas de producto son un read model local por Project y rango UTC. Declaran cobertura y
+staleness y no cambian ninguna fuente. `SpecRevision` sigue siendo inmutable; Task Detail puede
+comparar dos revisiones del Cycle vigente sin afirmar una causalidad que el dominio no almacena.

@@ -129,21 +129,12 @@ export class GitWorkspaceManager {
     }
   }
 
-  async commitAndPush(
-    workspace: PreparedWorkspace,
-    branchName: string,
-    authentication: GitAuthentication | string,
-    message: string,
-  ): Promise<string> {
+  async commit(workspace: PreparedWorkspace, message: string): Promise<string> {
     const askpass = await createAskPass();
     try {
-      const status = await git(
-        ["-C", workspace.path, "status", "--porcelain"],
-        authentication,
-        askpass,
-      );
+      const status = await git(["-C", workspace.path, "status", "--porcelain"], "", askpass);
       if (status.trim() !== "") {
-        await git(["-C", workspace.path, "add", "--all"], authentication, askpass);
+        await git(["-C", workspace.path, "add", "--all"], "", askpass);
         await git(
           [
             "-C",
@@ -156,15 +147,37 @@ export class GitWorkspaceManager {
             "-m",
             message,
           ],
-          authentication,
+          "",
           askpass,
         );
       }
-      const headSha = (
-        await git(["-C", workspace.path, "rev-parse", "HEAD"], authentication, askpass)
-      ).trim();
+      const headSha = (await git(["-C", workspace.path, "rev-parse", "HEAD"], "", askpass)).trim();
       if (headSha === workspace.baseSha)
         throw new Error("Agent completed without repository changes.");
+      return headSha;
+    } finally {
+      await rm(askpass.directory, { recursive: true, force: true });
+    }
+  }
+
+  async push(
+    workspace: PreparedWorkspace,
+    branchName: string,
+    authentication: GitAuthentication | string,
+    expectedHeadSha: string,
+  ): Promise<void> {
+    const askpass = await createAskPass();
+    try {
+      const actualHeadSha = (
+        await git(["-C", workspace.path, "rev-parse", "HEAD"], authentication, askpass)
+      ).trim();
+      const status = await git(
+        ["-C", workspace.path, "status", "--porcelain"],
+        authentication,
+        askpass,
+      );
+      if (actualHeadSha !== expectedHeadSha || status.trim() !== "")
+        throw new Error("Workspace changed after verification checkpoint.");
       await git(
         [
           "-C",
@@ -178,13 +191,16 @@ export class GitWorkspaceManager {
         authentication,
         askpass,
       );
-      return headSha;
     } finally {
       await rm(askpass.directory, { recursive: true, force: true });
     }
   }
 
-  async resumePublishing(runId: string, expectedBaseSha: string): Promise<PreparedWorkspace> {
+  async resumePublishing(
+    runId: string,
+    expectedBaseSha: string,
+    expectedHeadSha: string,
+  ): Promise<PreparedWorkspace> {
     assertRunId(runId);
     const workspace = join(this.workspacesRoot, "runs", runId, "repository");
     assertWithin(this.workspacesRoot, workspace);
@@ -201,7 +217,7 @@ export class GitWorkspaceManager {
     const status = await git(["-C", workspace, "status", "--porcelain"], "", {
       path: "/bin/false",
     });
-    if (actualBase !== expectedBaseSha || headSha === expectedBaseSha || status.trim() !== "") {
+    if (actualBase !== expectedBaseSha || headSha !== expectedHeadSha || status.trim() !== "") {
       throw new Error(
         "Resume workspace does not match its publishing checkpoint; use a full Retry.",
       );

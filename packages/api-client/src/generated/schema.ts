@@ -477,6 +477,54 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/runs/{runId}/verification": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["getRunVerification"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/runs/{runId}/verification-results": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["recordRunVerification"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/runs/{runId}/provenance": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["getRunProvenance"];
+    put: operations["recordRunProvenance"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/runs/{runId}/git-credentials": {
     parameters: {
       query?: never;
@@ -589,6 +637,87 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/runs/{runId}/waive-verification": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["waiveRunVerification"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/attention": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** List deduplicated situations that require an operator */
+    get: operations["listAttention"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/deliveries/{deliveryId}/projection": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["getDeliveryProjection"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/deliveries/{deliveryId}/projection/refresh": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["refreshDeliveryProjection"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/projects/{projectId}/metrics": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["getProjectMetrics"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/projects": {
     parameters: {
       query?: never;
@@ -638,6 +767,75 @@ export interface paths {
     get: operations["listProjectBranches"];
     put?: never;
     post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/projects/{projectId}/readiness-check": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Run an ephemeral readiness check for a managed Project */
+    post: operations["checkProjectReadiness"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/projects/{projectId}/verification-contract": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Get the effective Verification Contract state */
+    get: operations["getVerificationContract"];
+    /** Append and activate a complete Verification Contract revision */
+    put: operations["replaceVerificationContract"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/projects/{projectId}/verification-contract/revisions": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** List immutable Verification Contract history newest first */
+    get: operations["listVerificationContractRevisions"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/projects/{projectId}/verification-contract/disable": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Append a revision that disables Project verification */
+    post: operations["disableVerificationContract"];
     delete?: never;
     options?: never;
     head?: never;
@@ -1010,6 +1208,8 @@ export interface components {
     /** @enum {string} */
     AccountScope: "personal" | "work";
     /** @enum {string} */
+    ReadyPolicy: "curator_decides" | "manual_approval_required";
+    /** @enum {string} */
     TaskStatus: "draft" | "curating" | "blocked" | "ready" | "implementing" | "done";
     /** @enum {string} */
     RunKind: "curation" | "implementation";
@@ -1078,6 +1278,7 @@ export interface components {
       scheduleCron: string | null;
       scheduleTimezone: string;
       maxConcurrency: number;
+      readyPolicy: components["schemas"]["ReadyPolicy"];
       createdAt: components["schemas"]["Timestamp"];
       updatedAt: components["schemas"]["Timestamp"];
       archivedAt: components["schemas"]["Timestamp"] | null;
@@ -1103,6 +1304,58 @@ export interface components {
       scheduleCron?: string | null;
       scheduleTimezone?: string;
       maxConcurrency?: number;
+      readyPolicy?: components["schemas"]["ReadyPolicy"];
+    };
+    ProjectReadinessRequest: {
+      /**
+       * @default standard
+       * @enum {string}
+       */
+      depth: "standard" | "deep";
+    };
+    ProjectReadinessCheck: {
+      id: string;
+      /** @enum {string} */
+      status: "pass" | "warning" | "fail" | "skipped";
+      message: string;
+      details: {
+        [key: string]: string | number | boolean | null;
+      };
+    };
+    ProjectReadinessReport: {
+      projectId: components["schemas"]["ProjectId"];
+      /** @enum {string} */
+      depth: "standard" | "deep";
+      checkedAt: components["schemas"]["Timestamp"];
+      durationMs: number;
+      ok: boolean;
+      checks: components["schemas"]["ProjectReadinessCheck"][];
+    };
+    VerificationCommand: {
+      name: string;
+      executable: string;
+      args: string[];
+      required: boolean;
+      timeoutSeconds: number;
+    };
+    VerificationContractRevision: {
+      projectId: components["schemas"]["ProjectId"];
+      revision: number;
+      enabled: boolean;
+      commands: components["schemas"]["VerificationCommand"][];
+      createdAt: components["schemas"]["Timestamp"];
+    };
+    VerificationContractState: {
+      projectId: components["schemas"]["ProjectId"];
+      latestRevision: number | null;
+      active: components["schemas"]["VerificationContractRevision"] | null;
+    };
+    ReplaceVerificationContractRequest: {
+      expectedRevision: number | null;
+      commands: components["schemas"]["VerificationCommand"][];
+    };
+    DisableVerificationContractRequest: {
+      expectedRevision: number;
     };
     ProjectPage: {
       items: components["schemas"]["Project"][];
@@ -1205,10 +1458,12 @@ export interface components {
       project: components["schemas"]["ProjectRef"];
       questions: components["schemas"]["Question"][];
       attachments: components["schemas"]["Attachment"][];
+      specRevisions: components["schemas"]["SpecRevision"][];
       createdAt: components["schemas"]["Timestamp"];
       updatedAt: components["schemas"]["Timestamp"];
       archivedAt: components["schemas"]["Timestamp"] | null;
       automationPaused: boolean;
+      readyApprovalPending: boolean;
       currentCycle: components["schemas"]["TaskCycle"];
       currentDelivery: components["schemas"]["Delivery"] | null;
     };
@@ -1338,13 +1593,14 @@ export interface components {
       agentProfileId: components["schemas"]["AgentProfileId"];
       kind: components["schemas"]["RunKind"];
       /** @enum {string|null} */
-      outcome: "ready" | "blocked" | null;
+      outcome: "ready" | "blocked" | "approval_required" | null;
       attempt: number;
       /** @enum {string} */
       status:
         | "queued"
         | "preparing"
         | "running"
+        | "verifying"
         | "publishing"
         | "succeeded"
         | "failed"
@@ -1365,6 +1621,10 @@ export interface components {
       heartbeatAt: components["schemas"]["Timestamp"] | null;
       startedAt: components["schemas"]["Timestamp"] | null;
       finishedAt: components["schemas"]["Timestamp"] | null;
+      readyPolicy: components["schemas"]["ReadyPolicy"] | null;
+      verificationContractRevision: number | null;
+      verificationWaiverRunId: components["schemas"]["RunId"] | null;
+      verificationWaiverReason: string | null;
       createdAt: components["schemas"]["Timestamp"];
       updatedAt: components["schemas"]["Timestamp"];
     };
@@ -1374,6 +1634,7 @@ export interface components {
       project: components["schemas"]["Project"];
       agentProfile: components["schemas"]["AgentProfile"];
       delivery: components["schemas"]["Delivery"] | null;
+      verificationContract: components["schemas"]["VerificationContractRevision"] | null;
     };
     RunTask: {
       id: components["schemas"]["TaskId"];
@@ -1386,6 +1647,7 @@ export interface components {
       prUrl: string | null;
       version: number;
       automationPaused: boolean;
+      readyApprovalPending: boolean;
       currentCycleId: components["schemas"]["TaskCycleId"];
       currentDeliveryId: components["schemas"]["DeliveryId"] | null;
       questions: components["schemas"]["Question"][];
@@ -1399,7 +1661,7 @@ export interface components {
     };
     AdvanceRunRequest: {
       /** @enum {string} */
-      status: "preparing" | "running" | "publishing";
+      status: "preparing" | "running" | "verifying" | "publishing";
       baseSha?: string;
       headSha?: string;
       logsStorageKey?: string;
@@ -1447,6 +1709,134 @@ export interface components {
        * @enum {string}
        */
       mode: "auto" | "full" | "publish_only";
+    };
+    WaiveVerificationRequest: {
+      reason: string;
+    };
+    VerificationResult: {
+      runId: components["schemas"]["RunId"];
+      position: number;
+      name: string;
+      executable: string;
+      args: string[];
+      required: boolean;
+      /** @enum {string} */
+      status: "passed" | "failed" | "timed_out" | "spawn_error" | "cancelled";
+      startedAt: components["schemas"]["Timestamp"];
+      finishedAt: components["schemas"]["Timestamp"];
+      durationMs: number;
+      exitCode: number | null;
+      stdoutExcerpt: string;
+      stderrExcerpt: string;
+      imageDigest: string;
+      toolchainIdentity: string;
+    };
+    RecordVerificationResultsRequest: {
+      results: (components["schemas"]["VerificationResult"] & {
+        runId?: never;
+      })[];
+    };
+    RunProvenance: {
+      runId: components["schemas"]["RunId"];
+      /** @constant */
+      schemaVersion: 1;
+      aiwsVersion: string;
+      agentImage: string;
+      agentImageDigest: string;
+      baseSha: string | null;
+      headSha: string | null;
+      branchName: string | null;
+      promptBuilderVersion: string;
+      promptHash: string;
+      verificationContractRevision: number | null;
+      /** @enum {string} */
+      publicationOutcome: "not_applicable" | "not_attempted" | "published" | "failed" | "waived";
+      createdAt: components["schemas"]["Timestamp"];
+    } & {
+      [key: string]: unknown;
+    };
+    RecordRunProvenanceRequest: components["schemas"]["RunProvenance"] & {
+      runId?: never;
+      schemaVersion?: never;
+      createdAt?: never;
+    };
+    AttentionItem: {
+      id: string;
+      /** @enum {string} */
+      reason:
+        | "approval_pending"
+        | "questions_open"
+        | "run_failed"
+        | "publication_recoverable"
+        | "automation_paused"
+        | "connection_reauthorization"
+        | "runner_unavailable"
+        | "verification_failed"
+        | "delivery_checks_failed";
+      projectId: string | null;
+      projectName: string | null;
+      taskId: string | null;
+      taskTitle: string | null;
+      runId: string | null;
+      connectionId: string | null;
+      explanation: string;
+      detectedAt: components["schemas"]["Timestamp"];
+      nextAction: {
+        /** @enum {string} */
+        kind: "open_task" | "retry_publication" | "reauthorize" | "inspect_runner";
+        label: string;
+        href: string;
+      };
+    };
+    AttentionPage: {
+      items: components["schemas"]["AttentionItem"][];
+      nextCursor: string | null;
+    };
+    ProjectMetrics: {
+      projectId: components["schemas"]["ProjectId"];
+      from: components["schemas"]["Timestamp"];
+      to: components["schemas"]["Timestamp"];
+      generatedAt: components["schemas"]["Timestamp"];
+      coverage: {
+        tasks: number;
+        readySamples: number;
+        runs: number;
+        runsWithProvenance: number;
+        deliveries: number;
+        deliveriesObserved: number;
+        staleDeliveries: number;
+      };
+      flow: {
+        requestToReadyAverageMs: number | null;
+        blockedDurationMs: number;
+        blockedSamples: number;
+        questions: number;
+      };
+      runs: {
+        curation: components["schemas"]["RunDurationMetrics"];
+        implementation: components["schemas"]["RunDurationMetrics"];
+        firstAttemptSucceeded: number;
+        firstAttempts: number;
+      };
+      retries: {
+        full: number;
+        publishOnly: number;
+        waiver: number;
+      };
+      verification: {
+        passed: number;
+        failed: number;
+        requiredFailed: number;
+      };
+      delivery: {
+        pullRequests: number;
+        mergedObserved: number;
+      };
+    };
+    RunDurationMetrics: {
+      count: number;
+      completedSamples: number;
+      averageDurationMs: number | null;
     };
     ReconcileRunsRequest: {
       before: components["schemas"]["Timestamp"];
@@ -1522,6 +1912,16 @@ export interface components {
       baseBranch: string | null;
       /** Format: uri */
       prUrl: string | null;
+      /** @enum {string|null} */
+      prState: "draft" | "open" | "closed" | "merged" | null;
+      /** @enum {string|null} */
+      checksState: "pending" | "passed" | "failed" | "unknown" | null;
+      checksPassed: number;
+      checksFailed: number;
+      checksPending: number;
+      externalUpdatedAt: components["schemas"]["Timestamp"] | null;
+      lastSynchronizedAt: components["schemas"]["Timestamp"] | null;
+      synchronizationError: string | null;
       createdAt: components["schemas"]["Timestamp"];
       updatedAt: components["schemas"]["Timestamp"];
     };
@@ -2489,6 +2889,109 @@ export interface operations {
       };
     };
   };
+  getRunVerification: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        runId: components["parameters"]["RunId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Immutable verification evidence */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            items: components["schemas"]["VerificationResult"][];
+          };
+        };
+      };
+    };
+  };
+  recordRunVerification: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        runId: components["parameters"]["RunId"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["RecordVerificationResultsRequest"];
+      };
+    };
+    responses: {
+      /** @description Run advanced or failed */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Run"];
+        };
+      };
+      403: components["responses"]["Forbidden"];
+      422: components["responses"]["ValidationError"];
+    };
+  };
+  getRunProvenance: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        runId: components["parameters"]["RunId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Immutable Run provenance */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RunProvenance"];
+        };
+      };
+      404: components["responses"]["NotFound"];
+    };
+  };
+  recordRunProvenance: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        runId: components["parameters"]["RunId"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["RecordRunProvenanceRequest"];
+      };
+    };
+    responses: {
+      /** @description Provenance stored */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RunProvenance"];
+        };
+      };
+      403: components["responses"]["Forbidden"];
+      422: components["responses"]["ValidationError"];
+    };
+  };
   getRunGitCredentials: {
     parameters: {
       query?: never;
@@ -2679,6 +3182,144 @@ export interface operations {
       };
     };
   };
+  waiveRunVerification: {
+    parameters: {
+      query?: never;
+      header: {
+        /** @description Expected Task version, conventionally quoted. */
+        "If-Match": components["parameters"]["IfMatch"];
+      };
+      path: {
+        runId: components["parameters"]["RunId"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["WaiveVerificationRequest"];
+      };
+    };
+    responses: {
+      /** @description Waiver publication assignment */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RunAssignment"];
+        };
+      };
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["ValidationError"];
+    };
+  };
+  listAttention: {
+    parameters: {
+      query?: {
+        limit?: number;
+        cursor?: components["parameters"]["Cursor"];
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Attention projection */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AttentionPage"];
+        };
+      };
+      422: components["responses"]["ValidationError"];
+    };
+  };
+  getDeliveryProjection: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        deliveryId: components["schemas"]["DeliveryId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Last external observation */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Delivery"];
+        };
+      };
+      404: components["responses"]["NotFound"];
+    };
+  };
+  refreshDeliveryProjection: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        deliveryId: components["schemas"]["DeliveryId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Refreshed observation */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Delivery"];
+        };
+      };
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      /** @description Safe provider synchronization failure */
+      502: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorEnvelope"];
+        };
+      };
+    };
+  };
+  getProjectMetrics: {
+    parameters: {
+      query: {
+        from: components["schemas"]["Timestamp"];
+        to: components["schemas"]["Timestamp"];
+      };
+      header?: never;
+      path: {
+        projectId: components["parameters"]["ProjectId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Local product metrics */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ProjectMetrics"];
+        };
+      };
+      404: components["responses"]["NotFound"];
+      422: components["responses"]["ValidationError"];
+    };
+  };
   listProjects: {
     parameters: {
       query?: {
@@ -2811,6 +3452,152 @@ export interface operations {
       401: components["responses"]["Unauthorized"];
       404: components["responses"]["NotFound"];
       409: components["responses"]["Conflict"];
+    };
+  };
+  checkProjectReadiness: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        projectId: components["parameters"]["ProjectId"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ProjectReadinessRequest"];
+      };
+    };
+    responses: {
+      /** @description Ephemeral Project readiness report */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ProjectReadinessReport"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      422: components["responses"]["ValidationError"];
+      /** @description Readiness capability unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+    };
+  };
+  getVerificationContract: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        projectId: components["parameters"]["ProjectId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Verification Contract state */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["VerificationContractState"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  replaceVerificationContract: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        projectId: components["parameters"]["ProjectId"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ReplaceVerificationContractRequest"];
+      };
+    };
+    responses: {
+      /** @description Updated Verification Contract state */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["VerificationContractState"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["ValidationError"];
+    };
+  };
+  listVerificationContractRevisions: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        projectId: components["parameters"]["ProjectId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Verification Contract revisions */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["VerificationContractRevision"][];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  disableVerificationContract: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        projectId: components["parameters"]["ProjectId"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["DisableVerificationContractRequest"];
+      };
+    };
+    responses: {
+      /** @description Disabled Verification Contract state */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["VerificationContractState"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["ValidationError"];
     };
   };
   archiveProject: {

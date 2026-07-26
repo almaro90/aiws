@@ -1,10 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import {
   archiveTask,
+  completeCurationTask,
   createTask,
   createTaskEvent,
   generateTaskTitle,
   InvalidTransitionError,
+  mutateTaskForAttachment,
+  mutateTaskForQuestion,
   type ProjectId,
   type TaskEventId,
   type TaskId,
@@ -39,6 +42,7 @@ describe("Task creation and updates", () => {
       prUrl: null,
       version: 1,
       archivedAt: null,
+      readyApprovalPending: false,
     });
   });
 
@@ -102,6 +106,20 @@ describe("Task creation and updates", () => {
       ).toThrow(ValidationError);
     },
   );
+
+  test("editing the prepared Spec invalidates a pending Ready approval", () => {
+    const updated = updateTask(
+      task({
+        status: "curating",
+        curatorSpec: "# Prepared",
+        readyApprovalPending: true,
+      }),
+      { curatorSpec: "# Changed" },
+      now,
+    ).task;
+    expect(updated.readyApprovalPending).toBe(false);
+    expect(updated.version).toBe(2);
+  });
 });
 
 describe("Task state machine", () => {
@@ -171,6 +189,38 @@ describe("Task state machine", () => {
     );
     expect(done.status).toBe("done");
     expect(done.prUrl).toBeNull();
+  });
+
+  test("manual policy prepares approval without inventing a Task status", () => {
+    const prepared = completeCurationTask(
+      task({ status: "curating" }),
+      "ready",
+      { curatorSpec: "# Prepared" },
+      "manual_approval_required",
+      now,
+    );
+    expect(prepared).toMatchObject({
+      status: "curating",
+      readyApprovalPending: true,
+      version: 2,
+    });
+
+    const approved = transitionTask(prepared, "curating", "ready", 0, now);
+    expect(approved).toMatchObject({
+      status: "ready",
+      readyApprovalPending: false,
+      version: 3,
+    });
+  });
+
+  test("Questions and Attachments invalidate a prepared approval", () => {
+    const prepared = task({
+      status: "curating",
+      curatorSpec: "# Prepared",
+      readyApprovalPending: true,
+    });
+    expect(mutateTaskForQuestion(prepared, now, "blocked", true).readyApprovalPending).toBe(false);
+    expect(mutateTaskForAttachment(prepared, now).readyApprovalPending).toBe(false);
   });
 });
 

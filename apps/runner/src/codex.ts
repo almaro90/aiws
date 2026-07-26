@@ -147,7 +147,7 @@ export class CodexRuntime {
         }
       }
     }
-    args.push(prompt(assignment));
+    args.push(buildPrompt(assignment));
     const heartbeat = setInterval(() => {
       void onHeartbeat().catch(() => undefined);
     }, 30_000);
@@ -262,7 +262,9 @@ function redact(value: string): string {
   return value.replaceAll(/(?:gh[psu]_|sk-)[A-Za-z0-9_-]+/gu, "[REDACTED]");
 }
 
-function prompt(assignment: Assignment): string {
+export const PROMPT_BUILDER_VERSION = "1";
+
+export function buildPrompt(assignment: Assignment): string {
   if (assignment.run.kind === "curation") {
     const questions = curationQuestions(assignment.task.questions);
     const attachments = assignment.task.attachments
@@ -282,7 +284,7 @@ function prompt(assignment: Assignment): string {
       .join("\n\n");
     return `Curate this AIWS Task. You have read-only access to the repository and attachments. Inspect every applicable AGENTS.md and the relevant codebase before deciding. Do not modify files, commit, push, access AIWS, or use credentials.\n\nTitle: ${assignment.task.title}\n\nOriginal request projection:\n${assignment.task.userRequest}\n\nComplete message history:\n${history || "(none)"}\n\nSpec revision history:\n${specs || "(none)"}\n\nCurrent curator specification:\n${assignment.task.curatorSpec || "(none)"}\n\nQuestions and answers:\n${questions || "(none)"}\n\nAttachments:\n${attachments || "(none)"}\n\nFor PDF attachments, use the adjacent .txt extraction when present. Read textual attachments directly; images are also supplied through --image. Produce a sufficient spec for the checked-out delivery ref, including all incremental history that remains applicable. Ask questions only when a product ambiguity would materially change the result. Always return all schema fields. For ready, use a non-empty curatorSpec and an empty questions array. For blocked, use one to ten questions and curatorSpec may be null. Use null for an unchanged title. Return only the JSON required by the output schema.`;
   }
-  return `Implement this AIWS Task in the current repository. Follow all repository AGENTS.md instructions.\n\nTitle: ${assignment.task.title}\n\nOriginal request (immutable):\n${assignment.task.userRequest}\n\nCurator specification:\n${assignment.task.curatorSpec}\n\nMake the smallest complete change, run the relevant verification, and leave all intended modifications in the worktree. Do not commit, push, open a pull request, or access AIWS. In the final response summarize changes and tests.`;
+  return `Implement this AIWS Task in the current repository. Follow all repository AGENTS.md instructions.\n\nTitle: ${assignment.task.title}\n\nOriginal request (immutable):\n${assignment.task.userRequest}\n\nCurator specification:\n${assignment.task.curatorSpec}\n\nMake the smallest complete change and leave all intended modifications in the worktree. AIWS will execute the Project's captured Verification Contract after your work. You may run focused checks while developing, but do not commit, push, open a pull request, or access AIWS. In the final response summarize changes and checks.`;
 }
 
 export function curationQuestions(questions: Assignment["task"]["questions"]): string {

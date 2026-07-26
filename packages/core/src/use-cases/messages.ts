@@ -101,6 +101,7 @@ export class MessageUseCases {
           currentCycleId: cycleId,
           status: newCycle ? ("curating" as const) : current.status,
           automationPaused: newCycle ? false : current.automationPaused,
+          readyApprovalPending: false,
           version: current.version + 1,
           updatedAt: now,
         };

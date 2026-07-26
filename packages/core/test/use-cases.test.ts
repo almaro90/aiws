@@ -31,6 +31,10 @@ class MemoryUnitOfWork implements UnitOfWork {
   readonly tasks = new Map<string, Task>();
   readonly events: TaskEvent[] = [];
   readonly deliveries = new Map<string, Delivery>();
+  readonly verificationContracts = new Map<
+    ProjectId,
+    import("../src/index.ts").VerificationContractRevision[]
+  >();
   openQuestions = 0;
   forceCompareAndSwapConflict = false;
 
@@ -52,6 +56,18 @@ class MemoryUnitOfWork implements UnitOfWork {
         [...this.tasks.values()].filter(
           (task) => task.projectId === projectId && task.archivedAt === null,
         ).length,
+    },
+    verificationContracts: {
+      getLatest: async (projectId) => this.verificationContracts.get(projectId)?.at(-1) ?? null,
+      getRevision: async (projectId, revision) =>
+        this.verificationContracts.get(projectId)?.find((item) => item.revision === revision) ??
+        null,
+      list: async (projectId) => [...(this.verificationContracts.get(projectId) ?? [])].reverse(),
+      insert: async (revision) => {
+        const revisions = this.verificationContracts.get(revision.projectId) ?? [];
+        revisions.push(revision);
+        this.verificationContracts.set(revision.projectId, revisions);
+      },
     },
     tasks: {
       getById: async (id) => this.tasks.get(id) ?? null,
@@ -118,6 +134,14 @@ class MemoryUnitOfWork implements UnitOfWork {
       nextAttempt: async () => 1,
       insert: async () => {},
       update: async () => {},
+    },
+    verificationResults: {
+      listByRunId: async () => [],
+      insertMany: async () => {},
+    },
+    runProvenance: {
+      getByRunId: async () => null,
+      insert: async () => {},
     },
     cycles: {
       getById: async (id) => ({
@@ -212,6 +236,7 @@ describe("Project use cases", () => {
       automationPaused: false,
       currentCycleId: "cyc_01K0ABCDEFGHIJKLMNOPQRSTUV" as never,
       currentDeliveryId: null,
+      readyApprovalPending: false,
     });
 
     expect(projects.archive(project.id)).rejects.toBeInstanceOf(ProjectHasActiveTasksError);

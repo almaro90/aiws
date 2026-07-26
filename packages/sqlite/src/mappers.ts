@@ -52,6 +52,7 @@ export interface ProjectRow {
   readonly schedule_cron: string | null;
   readonly schedule_timezone: string;
   readonly max_concurrency: number;
+  readonly ready_policy: string;
   readonly created_at: string;
   readonly updated_at: string;
   readonly archived_at: string | null;
@@ -72,6 +73,7 @@ export interface TaskRow {
   readonly automation_paused: number;
   readonly current_cycle_id: string;
   readonly current_delivery_id: string | null;
+  readonly ready_approval_pending: number;
 }
 
 export interface TaskSummaryRow {
@@ -180,6 +182,10 @@ export interface RunRow {
   readonly finished_at: string | null;
   readonly created_at: string;
   readonly updated_at: string;
+  readonly ready_policy: string | null;
+  readonly verification_contract_revision: number | null;
+  readonly verification_waiver_run_id: string | null;
+  readonly verification_waiver_reason: string | null;
 }
 
 export function projectFromRow(row: ProjectRow): Project {
@@ -202,6 +208,7 @@ export function projectFromRow(row: ProjectRow): Project {
     scheduleCron: row.schedule_cron,
     scheduleTimezone: row.schedule_timezone,
     maxConcurrency: row.max_concurrency,
+    readyPolicy: row.ready_policy as Project["readyPolicy"],
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     archivedAt: row.archived_at,
@@ -276,6 +283,10 @@ export function runFromRow(row: RunRow): Run {
     finishedAt: row.finished_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    readyPolicy: row.ready_policy as Run["readyPolicy"],
+    verificationContractRevision: row.verification_contract_revision,
+    verificationWaiverRunId: row.verification_waiver_run_id as RunId | null,
+    verificationWaiverReason: row.verification_waiver_reason,
   };
 }
 
@@ -295,6 +306,7 @@ export function taskFromRow(row: TaskRow): Task {
     automationPaused: row.automation_paused === 1,
     currentCycleId: row.current_cycle_id as TaskCycleId,
     currentDeliveryId: row.current_delivery_id as DeliveryId | null,
+    readyApprovalPending: row.ready_approval_pending === 1,
   };
 }
 

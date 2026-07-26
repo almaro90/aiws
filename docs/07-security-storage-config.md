@@ -339,7 +339,7 @@ No registrar:
 ```yaml
 services:
   aiws:
-    image: ghcr.io/example/aiws:0.6.1
+    image: ghcr.io/example/aiws:0.8.0
     restart: unless-stopped
     env_file: .env
     ports:
@@ -475,3 +475,35 @@ Los repository roots no forman parte del backup de AIWS.
   `reauthorization_required`.
 - Git Azure usa `--config-env=http.extraHeader=...`; los secretos no aparecen en URL, argv, refs,
   errores o logs.
+
+# Addendum v0.6.2 — Project Readiness
+
+- El informe no contiene credenciales, referencias secretas, rutas físicas ni nombres de
+  contenedor.
+- Server descarta las credenciales Git obtenidas durante el check.
+- El control interno exige el secreto dedicado y acepta únicamente el schema fijo del probe.
+- Docker recibe comandos internos constantes; ningún texto del usuario se interpreta como shell.
+- Cada contenedor usa límites, rootfs read-only, capabilities eliminadas y cleanup adicional.
+
+# Addendum v0.7 — aprobación Ready
+
+- La política y el flag no son autorización de seguridad ni prueban identidad humana.
+- La transición sigue exigiendo autenticación, Origin para cookie y `If-Match`.
+- Eventos y logs registran la decisión y versiones, nunca contenido completo de la Spec.
+## Seguridad del Verification Contract
+
+Los comandos se almacenan y muestran como configuración no secreta. No existen campos de entorno,
+secretos, shell ni working directory. `executable` y cada argumento son valores argv acotados; el
+runner los ejecutará desde el root aislado del repositorio en Hito 28.
+## Seguridad de Verification Results y provenance
+
+La salida se limita por comando, redacta patrones de credenciales y nunca incluye entorno completo,
+tokens, cookies, rutas físicas de Attachments o bytes. El waiver no publica si falta el workspace,
+está sucio o `HEAD` diverge del snapshot.
+
+## Seguridad de proyecciones y métricas
+
+Los errores de sincronización Git se sanean antes de persistirlos y mostrar atención. No se
+persisten respuestas completas del provider. Attention y métricas solo consultan datos locales,
+respetan autenticación y no emiten contenido completo de Specs, logs, Questions o Attachments.
+El diff se renderiza como texto React, no como HTML confiable.

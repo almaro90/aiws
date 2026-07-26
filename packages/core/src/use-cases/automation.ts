@@ -25,6 +25,12 @@ import {
 import { createQuestion, type Question, type QuestionType } from "../domain/question.ts";
 import type { Attachment } from "../domain/attachment.ts";
 import type { Delivery, SpecRevision, TaskCycle, TaskMessage } from "../domain/cycle.ts";
+import {
+  validateVerificationResults,
+  type RunProvenance,
+  type VerificationResult,
+} from "../domain/run-evidence.ts";
+import type { VerificationContractRevision } from "../domain/verification.ts";
 import { createTaskEvent, type TaskEventFact } from "../domain/task-event.ts";
 import { NotFoundError, ValidationError, VersionConflictError } from "../errors/domain-errors.ts";
 import type { UnitOfWork } from "../ports/unit-of-work.ts";
@@ -213,6 +219,7 @@ export interface RunAssignment {
   readonly project: import("../domain/project.ts").Project;
   readonly agentProfile: AgentProfile;
   readonly delivery: Delivery | null;
+  readonly verificationContract: VerificationContractRevision | null;
 }
 
 export class RunUseCases {
@@ -302,6 +309,14 @@ export class RunUseCases {
           branchName: `aiws/${task.id}/${deliveryId}`,
           baseBranch: project.defaultBranch,
           prUrl: null,
+          prState: null,
+          checksState: null,
+          checksPassed: 0,
+          checksFailed: 0,
+          checksPending: 0,
+          externalUpdatedAt: null,
+          lastSynchronizedAt: null,
+          synchronizationError: null,
           createdAt: now,
           updatedAt: now,
         });
@@ -316,6 +331,8 @@ export class RunUseCases {
           : deliveryCreated
             ? { ...task, currentDeliveryId: deliveryId, version: task.version + 1, updatedAt: now }
             : task;
+      const verificationContract =
+        kind === "implementation" ? await stores.verificationContracts.getLatest(project.id) : null;
       const queuedRun = createRun({
         id: runId,
         taskId: task.id,
@@ -329,6 +346,9 @@ export class RunUseCases {
         branchName: kind === "implementation" ? `aiws/${task.id}/${deliveryId}` : null,
         executionStage: "agent",
         resumeFromRunId: null,
+        readyPolicy: kind === "curation" ? project.readyPolicy : null,
+        verificationContractRevision:
+          verificationContract?.enabled === true ? verificationContract.revision : null,
         now,
       });
       const run = transitionRun(queuedRun, "preparing", now);
@@ -395,7 +415,8 @@ export class RunUseCases {
       const hasPublishingCheckpoint =
         previous.kind === "implementation" &&
         previous.executionStage === "publishing" &&
-        previous.baseSha !== null;
+        previous.baseSha !== null &&
+        previous.headSha !== null;
       if (mode === "publish_only" && !hasPublishingCheckpoint) {
         throw new ValidationError([
           {
@@ -417,6 +438,10 @@ export class RunUseCases {
               version: task.version + 1,
               updatedAt: now,
             };
+      const verificationContract =
+        previous.kind === "implementation"
+          ? await stores.verificationContracts.getLatest(project.id)
+          : null;
       const run = createRun({
         id: nextId,
         taskId: task.id,
@@ -430,6 +455,12 @@ export class RunUseCases {
         branchName: previous.kind === "implementation" ? previous.branchName : null,
         executionStage: publishOnly ? "publishing" : "agent",
         resumeFromRunId: publishOnly ? previous.id : null,
+        readyPolicy: previous.kind === "curation" ? project.readyPolicy : null,
+        verificationContractRevision: publishOnly
+          ? previous.verificationContractRevision
+          : verificationContract?.enabled === true
+            ? verificationContract.revision
+            : null,
         now,
       });
       const checkpointedRun = publishOnly
@@ -459,7 +490,7 @@ export class RunUseCases {
 
   advance(
     runId: RunId,
-    status: Extract<RunStatus, "preparing" | "running" | "publishing">,
+    status: Extract<RunStatus, "preparing" | "running" | "verifying" | "publishing">,
     details: {
       readonly baseSha?: string;
       readonly headSha?: string;
@@ -487,6 +518,225 @@ export class RunUseCases {
       );
       await stores.runs.update(run);
       return run;
+    });
+  }
+
+  verificationResults(runId: RunId): Promise<readonly VerificationResult[]> {
+    return this.unitOfWork.execute(async (stores) => {
+      await requiredRun(stores.runs, runId);
+      return stores.verificationResults.listByRunId(runId);
+    });
+  }
+
+  recordVerification(
+    runId: RunId,
+    input: readonly Omit<VerificationResult, "runId">[],
+  ): Promise<Run> {
+    return this.unitOfWork.execute(async (stores) => {
+      const current = await requiredRun(stores.runs, runId);
+      if (
+        current.kind !== "implementation" ||
+        (current.status !== "verifying" && current.status !== "cancelled")
+      ) {
+        throw new ValidationError([
+          {
+            path: "runId",
+            message: "Verification evidence requires a verifying implementation Run.",
+          },
+        ]);
+      }
+      if ((await stores.verificationResults.listByRunId(runId)).length !== 0) {
+        throw new ValidationError([
+          { path: "results", message: "Verification evidence is immutable." },
+        ]);
+      }
+      const contract =
+        current.verificationContractRevision === null
+          ? null
+          : await stores.verificationContracts.getRevision(
+              current.projectId,
+              current.verificationContractRevision,
+            );
+      const results = validateVerificationResults(input.map((result) => ({ ...result, runId })));
+      const commands = contract?.enabled === true ? contract.commands : [];
+      if (
+        results.length !== commands.length ||
+        results.some((result, index) => {
+          const command = commands[index];
+          return (
+            command === undefined ||
+            result.position !== index ||
+            result.name !== command.name ||
+            result.executable !== command.executable ||
+            result.required !== command.required ||
+            JSON.stringify(result.args) !== JSON.stringify(command.args)
+          );
+        })
+      ) {
+        throw new ValidationError([
+          {
+            path: "results",
+            message: "Evidence does not match the captured Verification Contract.",
+          },
+        ]);
+      }
+      await stores.verificationResults.insertMany(results);
+      if (current.status === "cancelled") return current;
+      const now = timestamp(this.dependencies.clock);
+      const requiredFailure = results.find(
+        (result) => result.required && result.status !== "passed",
+      );
+      if (requiredFailure === undefined) {
+        const run = transitionRun(current, "publishing", now);
+        await stores.runs.update(run);
+        return run;
+      }
+      const task = await requiredTask(stores.tasks, current.taskId);
+      assertVersion(task, current.taskVersion);
+      const nextTask = failAutomatedTask(task, now);
+      const run = transitionRun(current, "failed", now, {
+        errorCode: "verification_failed",
+        errorMessage: `Required verification '${requiredFailure.name}' did not pass.`,
+      });
+      if (!(await stores.tasks.updateIfVersion(nextTask, task.version)))
+        throw new VersionConflictError(task.version);
+      await stores.runs.update(run);
+      await appendFacts(stores.events, this.dependencies, nextTask, now, [
+        {
+          type: "status_changed",
+          from: "implementing",
+          to: "ready",
+          automatic: true,
+          reason: run.errorMessage ?? "Required verification failed.",
+        },
+        { type: "run_failed", runId, reason: run.errorMessage ?? "Required verification failed." },
+      ]);
+      return run;
+    });
+  }
+
+  provenance(runId: RunId): Promise<RunProvenance | null> {
+    return this.unitOfWork.execute(async (stores) => {
+      await requiredRun(stores.runs, runId);
+      return stores.runProvenance.getByRunId(runId);
+    });
+  }
+
+  recordProvenance(
+    runId: RunId,
+    input: Omit<RunProvenance, "runId" | "createdAt" | "schemaVersion">,
+  ): Promise<RunProvenance> {
+    return this.unitOfWork.execute(async (stores) => {
+      const run = await requiredRun(stores.runs, runId);
+      if (!["succeeded", "failed", "cancelled"].includes(run.status)) {
+        throw new ValidationError([
+          { path: "runId", message: "Provenance can only close a terminal Run." },
+        ]);
+      }
+      if ((await stores.runProvenance.getByRunId(runId)) !== null) {
+        throw new ValidationError([{ path: "runId", message: "Run provenance is immutable." }]);
+      }
+      if (
+        input.baseSha !== run.baseSha ||
+        input.headSha !== run.headSha ||
+        input.branchName !== run.branchName ||
+        input.verificationContractRevision !== run.verificationContractRevision
+      ) {
+        throw new ValidationError([
+          { path: "provenance", message: "Provenance checkpoint does not match the Run." },
+        ]);
+      }
+      const provenance: RunProvenance = {
+        ...input,
+        runId,
+        schemaVersion: 1,
+        createdAt: timestamp(this.dependencies.clock),
+      };
+      await stores.runProvenance.insert(provenance);
+      return provenance;
+    });
+  }
+
+  waiveVerification(runId: RunId, expectedVersion: number, reason: string): Promise<RunAssignment> {
+    return this.unitOfWork.execute(async (stores) => {
+      const failed = await requiredRun(stores.runs, runId);
+      if (
+        failed.kind !== "implementation" ||
+        failed.status !== "failed" ||
+        failed.errorCode !== "verification_failed" ||
+        failed.baseSha === null ||
+        failed.headSha === null
+      ) {
+        throw new ValidationError([
+          { path: "runId", message: "Only a checkpointed verification failure can be waived." },
+        ]);
+      }
+      const normalizedReason = reason.trim();
+      if (normalizedReason.length < 1 || normalizedReason.length > 2_000) {
+        throw new ValidationError([
+          { path: "reason", message: "Waiver reason must contain between 1 and 2000 characters." },
+        ]);
+      }
+      const task = await requiredTask(stores.tasks, failed.taskId);
+      assertVersion(task, expectedVersion);
+      const project = await requiredProject(stores.projects, task.projectId);
+      const profileId = project.implementationAgentProfileId;
+      if (profileId === null)
+        throw new ValidationError([
+          {
+            path: "implementationAgentProfileId",
+            message: "Project has no implementation Agent Profile.",
+          },
+        ]);
+      const profile = await stores.agentProfiles.getById(profileId);
+      if (profile === null || !profile.enabled)
+        throw new ValidationError([
+          { path: "implementationAgentProfileId", message: "Agent Profile is unavailable." },
+        ]);
+      const now = timestamp(this.dependencies.clock);
+      const claimed = {
+        ...transitionTask(task, "ready", "implementing", 0, now),
+        automationPaused: false,
+      };
+      const created = createRun({
+        id: this.dependencies.ids.runId(),
+        taskId: task.id,
+        cycleId: task.currentCycleId,
+        deliveryId: task.currentDeliveryId,
+        projectId: project.id,
+        agentProfileId: profile.id,
+        kind: "implementation",
+        attempt: await stores.runs.nextAttempt(task.id, "implementation"),
+        taskVersion: claimed.version,
+        branchName: failed.branchName,
+        executionStage: "publishing",
+        resumeFromRunId: failed.id,
+        readyPolicy: null,
+        verificationContractRevision: failed.verificationContractRevision,
+        now,
+      });
+      const waiver: Run = {
+        ...created,
+        baseSha: failed.baseSha,
+        headSha: failed.headSha,
+        summary: failed.summary,
+        verificationWaiverRunId: failed.id,
+        verificationWaiverReason: normalizedReason,
+      };
+      if (!(await stores.tasks.updateIfVersion(claimed, expectedVersion)))
+        throw new VersionConflictError(expectedVersion);
+      await stores.runs.insert(waiver);
+      await appendFacts(stores.events, this.dependencies, claimed, now, [
+        {
+          type: "status_changed",
+          from: "ready",
+          to: "implementing",
+          automatic: false,
+          reason: "Verification failure waived explicitly for publication.",
+        },
+        { type: "run_started", runId: waiver.id },
+      ]);
+      return this.assignment(stores, waiver, claimed, project, profile);
     });
   }
 
@@ -556,6 +806,7 @@ export class RunUseCases {
           ...(input.title === undefined ? {} : { title: input.title }),
           ...(input.curatorSpec === undefined ? {} : { curatorSpec: input.curatorSpec }),
         },
+        current.readyPolicy ?? "curator_decides",
         now,
       );
       const questions =
@@ -578,7 +829,10 @@ export class RunUseCases {
             )
           : [];
       const run = transitionRun(current, "succeeded", now, {
-        outcome: input.outcome,
+        outcome:
+          input.outcome === "ready" && current.readyPolicy === "manual_approval_required"
+            ? "approval_required"
+            : input.outcome,
         summary: input.summary,
       });
       if (!(await stores.tasks.updateIfVersion(nextTask, task.version)))
@@ -615,13 +869,17 @@ export class RunUseCases {
           optionCount: question.options.length,
           allowOther: question.allowOther,
         });
-      facts.push({
-        type: "status_changed",
-        from: "curating",
-        to: input.outcome,
-        automatic: true,
-        reason: "Curation Run applied structured output.",
-      });
+      if (nextTask.status === "curating") {
+        facts.push({ type: "ready_approval_requested", runId });
+      } else {
+        facts.push({
+          type: "status_changed",
+          from: "curating",
+          to: input.outcome,
+          automatic: true,
+          reason: "Curation Run applied structured output.",
+        });
+      }
       facts.push({ type: "run_succeeded", runId });
       await appendFacts(stores.events, this.dependencies, nextTask, now, facts);
       return run;
@@ -743,7 +1001,15 @@ export class RunUseCases {
     project: import("../domain/project.ts").Project,
     agentProfile: AgentProfile,
   ): Promise<RunAssignment> {
-    const [questions, attachments, cycles, messages, specRevisions, delivery] = await Promise.all([
+    const [
+      questions,
+      attachments,
+      cycles,
+      messages,
+      specRevisions,
+      delivery,
+      verificationContract,
+    ] = await Promise.all([
       stores.questions.listByTaskId(task.id),
       stores.attachments.listByTaskId(task.id),
       stores.cycles.listByTaskId(task.id),
@@ -752,6 +1018,9 @@ export class RunUseCases {
       task.currentDeliveryId === null
         ? Promise.resolve(null)
         : stores.deliveries.getById(task.currentDeliveryId),
+      run.verificationContractRevision === null
+        ? Promise.resolve(null)
+        : stores.verificationContracts.getRevision(run.projectId, run.verificationContractRevision),
     ]);
     return {
       run,
@@ -766,6 +1035,7 @@ export class RunUseCases {
       project,
       agentProfile,
       delivery,
+      verificationContract,
     };
   }
 }

@@ -98,6 +98,7 @@ import {
   validateAttachmentFiles,
 } from "../lib/attachment-files.ts";
 import { preserveConflict } from "../lib/conflict.ts";
+import { specLineDiff } from "../lib/spec-diff.ts";
 import { focusFirstInvalid, UnsavedChangesBadge, UnsavedChangesGuard } from "../lib/form-state.tsx";
 import { renderSafeMarkdown } from "../lib/markdown.ts";
 import { answerPayload, questionPayload, type QuestionDraft } from "../lib/questions.ts";
@@ -769,7 +770,9 @@ function TaskHeader({
   readonly reload: () => void;
 }) {
   const titleId = useId();
+  const waiverReasonId = useId();
   const [title, setTitle] = useState(task.title);
+  const [waiverReason, setWaiverReason] = useState("");
   const save = useMutation({
     mutationFn: () => api.updateTask(task.id, { title }, task.version),
     onSuccess: (value) => onUpdate(value, "Título guardado"),
@@ -799,6 +802,17 @@ function TaskHeader({
     },
     onSuccess: () => {
       toast.success("Cancelación solicitada");
+      reload();
+    },
+  });
+  const waiveVerification = useMutation({
+    mutationFn: () => {
+      if (relevantRun === null) throw new Error("No hay un Run que exceptuar.");
+      return api.waiveVerification(relevantRun.id, waiverReason, task.version);
+    },
+    onSuccess: () => {
+      toast.success("Excepción registrada; publicación solicitada");
+      setWaiverReason("");
       reload();
     },
   });
@@ -847,6 +861,16 @@ function TaskHeader({
               >
                 Reanudar automatización
               </Button>
+            </AlertDescription>
+          </Alert>
+        ) : null}
+        {task.readyApprovalPending ? (
+          <Alert>
+            <CircleAlertIcon />
+            <AlertTitle>Aprobación Ready pendiente</AlertTitle>
+            <AlertDescription>
+              La Curation aplicó una especificación válida. Revisa la evidencia y usa “Aprobar y
+              marcar Ready” para autorizar explícitamente la transición.
             </AlertDescription>
           </Alert>
         ) : null}
@@ -910,6 +934,26 @@ function TaskHeader({
                 Rama: {relevantRun.branchName}
               </p>
             ) : null}
+            {relevantRun.kind === "implementation" ? <RunEvidence run={relevantRun} /> : null}
+            {relevantRun.errorCode === "verification_failed" && task.status === "ready" ? (
+              <Field>
+                <FieldLabel htmlFor={waiverReasonId}>Motivo de publicación excepcional</FieldLabel>
+                <Textarea
+                  id={waiverReasonId}
+                  value={waiverReason}
+                  maxLength={2000}
+                  onChange={(event) => setWaiverReason(event.target.value)}
+                  placeholder="Explica por qué se acepta publicar con checks obligatorios fallidos."
+                />
+                <Button
+                  variant="destructive"
+                  disabled={waiveVerification.isPending || waiverReason.trim() === ""}
+                  onClick={() => waiveVerification.mutate()}
+                >
+                  Registrar excepción y publicar
+                </Button>
+              </Field>
+            ) : null}
             <div className="flex flex-wrap gap-2">
               {runRetryable ? (
                 <Button disabled={retryRun.isPending} onClick={() => retryRun.mutate("auto")}>
@@ -940,7 +984,11 @@ function TaskHeader({
             </div>
             {retryRun.isError ? <ErrorNotice error={retryRun.error} /> : null}
             {cancelRun.isError ? <ErrorNotice error={cancelRun.error} /> : null}
+            {waiveVerification.isError ? <ErrorNotice error={waiveVerification.error} /> : null}
           </section>
+        ) : null}
+        {task.currentDelivery?.prUrl ? (
+          <DeliveryProjection delivery={task.currentDelivery} reload={reload} />
         ) : null}
         {titleConflict ? (
           <ConflictBanner
@@ -1081,6 +1129,109 @@ function TaskHeader({
   );
 }
 
+function DeliveryProjection({
+  delivery,
+  reload,
+}: {
+  readonly delivery: NonNullable<Task["currentDelivery"]>;
+  readonly reload: () => void;
+}) {
+  const refresh = useMutation({
+    mutationFn: () => api.refreshDeliveryProjection(delivery.id),
+    onSuccess: () => {
+      toast.success("Estado externo actualizado");
+      reload();
+    },
+  });
+  return (
+    <section className="grid gap-3 rounded-lg border p-4" aria-label="Delivery externa">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <strong>Delivery</strong>
+        <Button variant="outline" disabled={refresh.isPending} onClick={() => refresh.mutate()}>
+          <RotateCcwIcon />
+          {refresh.isPending ? "Actualizando…" : "Actualizar estado"}
+        </Button>
+      </div>
+      <div className="grid gap-2 text-sm sm:grid-cols-3">
+        <div>
+          <span className="block text-xs text-muted-foreground">Pull Request</span>
+          <strong>{delivery.prState ?? "Sin observar"}</strong>
+        </div>
+        <div>
+          <span className="block text-xs text-muted-foreground">Checks</span>
+          <strong>{delivery.checksState ?? "Sin observar"}</strong>
+          <p className="text-xs text-muted-foreground">
+            {delivery.checksPassed} ok · {delivery.checksFailed} fallidos · {delivery.checksPending}{" "}
+            pendientes
+          </p>
+        </div>
+        <div>
+          <span className="block text-xs text-muted-foreground">Última sincronización</span>
+          <strong>
+            {delivery.lastSynchronizedAt ? formatDate(delivery.lastSynchronizedAt) : "Nunca"}
+          </strong>
+        </div>
+      </div>
+      {delivery.synchronizationError ? (
+        <Alert variant="destructive">
+          <CircleAlertIcon />
+          <AlertTitle>Observación desactualizada</AlertTitle>
+          <AlertDescription>{delivery.synchronizationError}</AlertDescription>
+        </Alert>
+      ) : null}
+      {refresh.isError ? <ErrorNotice error={refresh.error} /> : null}
+    </section>
+  );
+}
+
+function RunEvidence({ run }: { readonly run: Run }) {
+  const verification = useQuery({
+    queryKey: ["run-verification", run.id],
+    queryFn: () => api.runVerification(run.id),
+    refetchInterval: isActiveRunStatus(run.status) ? 5_000 : false,
+  });
+  const provenance = useQuery({
+    queryKey: ["run-provenance", run.id],
+    queryFn: () => api.runProvenance(run.id),
+    enabled: run.status === "succeeded" || run.status === "failed" || run.status === "cancelled",
+    retry: false,
+  });
+  return (
+    <div className="grid gap-2 rounded-md border bg-background/60 p-3 text-sm">
+      <strong>Verification</strong>
+      {verification.data?.items.length ? (
+        <ul className="grid gap-1">
+          {verification.data.items.map((result) => (
+            <li key={result.position}>
+              {result.status === "passed" ? "✓" : result.required ? "✕" : "⚠"} {result.name} ·{" "}
+              {Math.round(result.durationMs / 100) / 10}s · {result.status}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <span className="text-muted-foreground">
+          {run.verificationContractRevision === null
+            ? "Este Run no capturó un contrato de verificación."
+            : "La evidencia todavía no está disponible."}
+        </span>
+      )}
+      {provenance.data ? (
+        <details>
+          <summary className="cursor-pointer font-medium">Provenance</summary>
+          <dl className="mt-2 grid gap-1 text-xs text-muted-foreground">
+            <div>AIWS {provenance.data.aiwsVersion}</div>
+            <div>Imagen {provenance.data.agentImageDigest}</div>
+            <div>Base {provenance.data.baseSha ?? "n/a"}</div>
+            <div>Head {provenance.data.headSha ?? "n/a"}</div>
+            <div>Prompt {provenance.data.promptHash}</div>
+            <div>Publicación {provenance.data.publicationOutcome}</div>
+          </dl>
+        </details>
+      ) : null}
+    </div>
+  );
+}
+
 function UserRequestSection({
   task,
   onUpdate,
@@ -1197,6 +1348,15 @@ function SpecSection({
   useEffect(() => {
     if (save.error && !conflict) focusFirstInvalid();
   }, [save.error, conflict]);
+  const currentCycleRevisions = [...(task.specRevisions ?? [])]
+    .filter((revision) => revision.cycleId === task.currentCycle.id)
+    .sort((left, right) => left.revision - right.revision);
+  const latestRevision = currentCycleRevisions.at(-1);
+  const previousRevision = currentCycleRevisions.at(-2);
+  const revisionDiff =
+    latestRevision === undefined || previousRevision === undefined
+      ? []
+      : specLineDiff(previousRevision.content, latestRevision.content);
   return (
     <Card>
       <CardHeader>
@@ -1254,6 +1414,44 @@ function SpecSection({
             />
           </TabsContent>
         </Tabs>
+        {previousRevision && latestRevision && task.status !== "done" ? (
+          <details className="rounded-lg border bg-muted/30 p-3">
+            <summary className="cursor-pointer text-sm font-medium">
+              Cambios de revisión {previousRevision.revision} a {latestRevision.revision}
+            </summary>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Evidencia de la decisión antes de aceptar la Spec y marcar Ready.
+            </p>
+            <pre className="mt-3 max-h-72 overflow-auto rounded-md bg-background p-3 text-xs">
+              {revisionDiff.map((line, index) => {
+                const prefix =
+                  line.kind === "added"
+                    ? "+"
+                    : line.kind === "removed"
+                      ? "-"
+                      : line.kind === "omitted"
+                        ? "…"
+                        : " ";
+                return (
+                  <div
+                    // The index is stable because immutable revisions yield a stable sequence.
+                    // biome-ignore lint/suspicious/noArrayIndexKey: immutable diff sequence has no identity.
+                    key={index}
+                    className={
+                      line.kind === "added"
+                        ? "bg-emerald-50 text-emerald-950"
+                        : line.kind === "removed"
+                          ? "bg-red-50 text-red-950"
+                          : "text-muted-foreground"
+                    }
+                  >
+                    {prefix} {line.text}
+                  </div>
+                );
+              })}
+            </pre>
+          </details>
+        ) : null}
         {!task.archivedAt ? (
           <Button
             className="justify-self-start"
@@ -2122,7 +2320,10 @@ function formatBytes(value: number): string {
 function taskStatusGuidance(task: Task): string {
   if (task.archivedAt) return "Task archivada · historial disponible en modo de solo lectura.";
   if (task.status === "draft") return "Prepara la petición y envíala a Curation.";
-  if (task.status === "curating") return "Curation en curso; revisa el Run o confirma Ready.";
+  if (task.status === "curating")
+    return task.readyApprovalPending
+      ? "Curation preparada; requiere aprobación explícita para marcar Ready."
+      : "Curation en curso; revisa el Run o confirma Ready.";
   if (task.status === "blocked") return "Hay Questions abiertas que requieren respuesta.";
   if (task.status === "ready") return "La Task puede reclamarse para Implementation.";
   if (task.status === "implementing") return "Implementation en curso; revisa el Run vigente.";
@@ -2138,6 +2339,7 @@ function runStatusLabel(status: Run["status"]): string {
     queued: "En cola",
     preparing: "Preparando",
     running: "En ejecución",
+    verifying: "Verificando",
     publishing: "Publicando",
     succeeded: "Completado",
     failed: "Fallido",

@@ -55,6 +55,7 @@ function project(value = 1, changes: Partial<Project> = {}): Project {
     scheduleCron: null,
     scheduleTimezone: "UTC",
     maxConcurrency: 1,
+    readyPolicy: "curator_decides",
     createdAt: timestamp,
     updatedAt: timestamp,
     archivedAt: null,
@@ -79,6 +80,7 @@ function task(value: number, owner = projectId(1), changes: Partial<Task> = {}):
     automationPaused: false,
     currentCycleId: `cyc_${taskId(value).slice(4)}` as never,
     currentDeliveryId: null,
+    readyApprovalPending: false,
     ...changes,
   };
 }

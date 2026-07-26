@@ -41,6 +41,7 @@ describe("Project domain", () => {
     expect(project.description).toBe("");
     expect(project.repositoryPath).toBe("/srv/repos/aiws");
     expect(project.archivedAt).toBeNull();
+    expect(project.readyPolicy).toBe("curator_decides");
   });
 
   test.each([
@@ -107,6 +108,14 @@ describe("Project domain", () => {
       implementationAgentProfileId: implementationProfileId,
       automationEnabled: true,
     });
+  });
+
+  test("configures the Ready policy without reinterpreting other fields", () => {
+    const updated = updateProject(validProject(), { readyPolicy: "manual_approval_required" }, now);
+    expect(updated.readyPolicy).toBe("manual_approval_required");
+    expect(() => updateProject(validProject(), { readyPolicy: "automatic" } as never, now)).toThrow(
+      ValidationError,
+    );
   });
 
   test("archive and unarchive are idempotent", () => {

@@ -426,3 +426,40 @@ release es su gate operativo y no se simulan con privilegios dentro de la suite 
 - [ ] Registry ejecuta las mismas operaciones GitHub/Azure y falla cerrado si no está configurado.
 - [ ] Runner prueba basic y bearer sin secretos en URL, argv, error o logs.
 - [ ] API, CLI, Web, OpenAPI, build y Playwright usan upstreams simulados, nunca red Azure real.
+
+## 23. Project Readiness
+
+- [ ] Informe estándar estable con GitHub y Azure simulados.
+- [ ] Project local/archivado, Connection revocada, repo/rama inaccesible, perfiles ausentes y
+  runner offline producen checks seguros.
+- [ ] Probe profundo cubre imagen, workspace, red, lifecycle, toolchain y modelos.
+- [ ] Cada fallo ejecuta cleanup; timeout y excepción no filtran stderr.
+- [ ] API cubre auth/input/404/503; CLI cubre `--deep`, JSON y exit 6.
+- [ ] Web cubre confirmación y presentación accesible.
+- [ ] Playbooks protegidos ejercitan providers reales sin registrar secretos.
+
+## 24. Ready Policy
+
+- [ ] Defaults y validación de ambas políticas en Core/SQLite/API.
+- [ ] Curation automática y aprobación manual con exactamente una versión y una revisión.
+- [ ] Claim excluido mientras `readyApprovalPending=true`.
+- [ ] Resultado obsoleto, cambio de política durante Run, Retry, Questions y nuevo Cycle.
+- [ ] CLI y Web consumen la transición existente y muestran la aprobación preparada.
+## Aceptación Hito 27
+
+Cubrir creación, reemplazo, desactivación, conflicto concurrente, argv inválido, nombres
+duplicados, máximo de comandos, timeout, inmutabilidad histórica y snapshot de Run frente a cambios
+posteriores del Project.
+## Aceptación Hito 28
+
+Cubrir pass/fail required y opcional, timeout, spawn error, cancelación, truncado/redacción,
+atomicidad, snapshot exacto, workspace de waiver ausente/sucio/divergente y enlaces inequívocos para
+full retry, publish-only y waiver.
+
+## Aceptación Hitos 29–31
+
+- Attention: precedencia, deduplicación, paginación, archivado y singleton runner.
+- Delivery: paridad GitHub/Azure, estados mixtos, error seguro y conservación de evidencia stale.
+- Métricas: rango vacío/parcial, Project archivado, límite de 366 días, retries, evidencia,
+  cobertura y ausencia de escrituras.
+- Spec: diff acotado y estable sobre revisiones inmutables, visible antes de Ready.

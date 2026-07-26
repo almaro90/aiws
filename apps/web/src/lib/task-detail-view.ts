@@ -4,6 +4,7 @@ export const activeRunStatuses: readonly Run["status"][] = [
   "queued",
   "preparing",
   "running",
+  "verifying",
   "publishing",
 ];
 
@@ -78,7 +79,9 @@ export function primaryTaskAction(task: Task): PrimaryTaskAction {
       nextStatus === "curating"
         ? "Enviar a curator"
         : nextStatus === "ready"
-          ? "Marcar Ready"
+          ? task.readyApprovalPending
+            ? "Aprobar y marcar Ready"
+            : "Marcar Ready"
           : nextStatus === "implementing"
             ? "Claim Task"
             : "Completar Task",
@@ -109,6 +112,7 @@ const eventLabels: Readonly<Record<string, string>> = {
   spec_revision_created: "Revisión de spec creada",
   delivery_created: "Delivery creada",
   delivery_updated: "Delivery actualizada",
+  ready_approval_requested: "Aprobación Ready solicitada",
 };
 
 const actorLabels: Readonly<Record<string, string>> = {

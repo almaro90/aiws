@@ -42,6 +42,15 @@ export interface PullRequestInput {
   readonly draft: boolean;
 }
 
+export interface ExternalDeliveryObservation {
+  readonly prState: "draft" | "open" | "closed" | "merged";
+  readonly checksState: "pending" | "passed" | "failed" | "unknown";
+  readonly checksPassed: number;
+  readonly checksFailed: number;
+  readonly checksPending: number;
+  readonly externalUpdatedAt: string | null;
+}
+
 export interface ManagedGitProvider {
   readonly provider: Connection["provider"];
   listRepositories(connection: Connection): Promise<readonly RemoteRepository[]>;
@@ -59,6 +68,13 @@ export interface ManagedGitProvider {
     input: PullRequestInput,
     existingUrl: string | null,
   ): Promise<string>;
+  observeDelivery(
+    connection: Connection,
+    repository: string,
+    repositoryId: string,
+    prUrl: string,
+    headSha: string | null,
+  ): Promise<ExternalDeliveryObservation>;
 }
 
 export class ManagedGitProviderRegistry {

@@ -15,6 +15,9 @@ import {
   SqliteQuestionAnswerRepository,
   SqliteDeliveryRepository,
   SqliteTimelineRepository,
+  SqliteVerificationContractRepository,
+  SqliteVerificationResultRepository,
+  SqliteRunProvenanceRepository,
 } from "./repositories.ts";
 
 export class SqliteUnitOfWork implements UnitOfWork {
@@ -25,6 +28,7 @@ export class SqliteUnitOfWork implements UnitOfWork {
   constructor(private readonly database: Database) {
     this.stores = {
       projects: new SqliteProjectRepository(database),
+      verificationContracts: new SqliteVerificationContractRepository(database),
       tasks: new SqliteTaskRepository(database),
       questions: new SqliteQuestionRepository(database),
       attachments: new SqliteAttachmentMetadataRepository(database),
@@ -32,6 +36,8 @@ export class SqliteUnitOfWork implements UnitOfWork {
       connections: new SqliteConnectionRepository(database),
       agentProfiles: new SqliteAgentProfileRepository(database),
       runs: new SqliteRunRepository(database),
+      verificationResults: new SqliteVerificationResultRepository(database),
+      runProvenance: new SqliteRunProvenanceRepository(database),
       cycles: new SqliteCycleRepository(database),
       messages: new SqliteMessageRepository(database),
       specRevisions: new SqliteSpecRevisionRepository(database),

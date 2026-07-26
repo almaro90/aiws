@@ -156,7 +156,7 @@ No toca datos de usuario.
 ```json
 {
   "status": "ok",
-  "version": "0.6.1"
+  "version": "0.8.0"
 }
 ```
 
@@ -165,7 +165,7 @@ Si SQLite no está disponible, 503:
 ```json
 {
   "status": "unhealthy",
-  "version": "0.6.1"
+  "version": "0.8.0"
 }
 ```
 
@@ -644,3 +644,47 @@ Draft → Curating señala `curationAgentProfileId` cuando falta o está deshabi
   `organizationId/organizationName`; el estado incluye `reauthorization_required`.
 - Repositorios, importación, ramas, credenciales system-only y pull requests mantienen endpoints
   provider-neutral. `RemoteBranch.protected` admite null.
+
+## 23. Project Readiness
+
+`POST /projects/{projectId}/readiness-check` recibe `{ "depth": "standard|deep" }`; omitir depth
+equivale a `standard`. Devuelve `projectId`, depth, `checkedAt`, `durationMs`, `ok` y checks
+ordenados con ID, estado, mensaje y detalles seguros.
+
+No usa `If-Match` ni persiste. La capacidad no compuesta devuelve 503
+`readiness_unavailable`. Un Project local o archivado produce un informe no preparado.
+
+## 24. Ready Policy
+
+- `Project.readyPolicy` se devuelve en create/list/show/import y `PATCH /projects/{projectId}`
+  acepta `curator_decides|manual_approval_required`.
+- `Task.readyApprovalPending` se devuelve en agregados y `Run.readyPolicy`/`Run.outcome` conservan
+  la decisión histórica.
+- La transición existente `POST /tasks/{taskId}/transition` Curating → Ready consume la aprobación
+  pendiente con `If-Match`; no existe endpoint ni estado adicional.
+## Verification Contract
+
+- `GET /projects/{projectId}/verification-contract` devuelve revisión vigente y última revisión.
+- `GET /projects/{projectId}/verification-contract/revisions` devuelve historia inmutable.
+- `PUT /projects/{projectId}/verification-contract` reemplaza usando `expectedRevision`.
+- `POST /projects/{projectId}/verification-contract/disable` desactiva usando `expectedRevision`.
+
+Los DTO usan argv estructurado y no aceptan shell, variables de entorno ni working directory.
+## Verification Results, waiver y provenance
+
+- Runner registra resultados y provenance mediante endpoints internos autenticados.
+- Operadores consultan `GET /runs/{runId}/verification` y `GET /runs/{runId}/provenance`.
+- `POST /runs/{runId}/waive-verification` exige `If-Match`, motivo y crea un nuevo attempt.
+
+El waiver no modifica el Run fallido ni su evidencia.
+
+## Attention, Delivery Projection y métricas
+
+- `GET /attention` devuelve una página global de causas accionables deduplicadas.
+- `GET /deliveries/{deliveryId}/projection` devuelve la última observación persistida.
+- `POST /deliveries/{deliveryId}/projection/refresh` consulta el provider explícitamente.
+- `GET /projects/{projectId}/metrics?from=...&to=...` deriva métricas locales para un rango UTC de
+  hasta 366 días.
+
+`TaskAggregate.specRevisions` expone la historia inmutable requerida para revisión. Refresh y
+métricas no cambian `Task.status`.

@@ -5,6 +5,7 @@ import type { TaskEvent } from "../domain/task-event.ts";
 import type { Task, TaskStatus } from "../domain/task.ts";
 import type { AttachmentId, ProjectId, QuestionId, TaskId } from "../domain/ids.ts";
 import type { AgentProfile, Connection, Run } from "../domain/automation.ts";
+import type { VerificationContractRevision } from "../domain/verification.ts";
 import type {
   Delivery,
   QuestionAnswer,
@@ -70,6 +71,7 @@ export interface TaskAggregate extends Task {
   readonly project: Project;
   readonly questions: readonly Question[];
   readonly attachments: readonly Attachment[];
+  readonly specRevisions: readonly SpecRevision[];
   readonly currentCycle: TaskCycle;
   readonly currentDelivery: Delivery | null;
 }
@@ -112,6 +114,13 @@ export interface ProjectStore {
   insert(project: Project): Promise<void>;
   update(project: Project): Promise<void>;
   countActiveTasks(projectId: ProjectId): Promise<number>;
+}
+
+export interface VerificationContractStore {
+  getLatest(projectId: ProjectId): Promise<VerificationContractRevision | null>;
+  getRevision(projectId: ProjectId, revision: number): Promise<VerificationContractRevision | null>;
+  list(projectId: ProjectId): Promise<readonly VerificationContractRevision[]>;
+  insert(revision: VerificationContractRevision): Promise<void>;
 }
 
 export interface TaskStore {
@@ -159,6 +168,20 @@ export interface RunStore {
   update(run: Run): Promise<void>;
 }
 
+export interface VerificationResultStore {
+  listByRunId(
+    runId: RunId,
+  ): Promise<readonly import("../domain/run-evidence.ts").VerificationResult[]>;
+  insertMany(
+    results: readonly import("../domain/run-evidence.ts").VerificationResult[],
+  ): Promise<void>;
+}
+
+export interface RunProvenanceStore {
+  getByRunId(runId: RunId): Promise<import("../domain/run-evidence.ts").RunProvenance | null>;
+  insert(provenance: import("../domain/run-evidence.ts").RunProvenance): Promise<void>;
+}
+
 export interface QuestionStore {
   getById(id: QuestionId): Promise<Question | null>;
   countOpenByTaskId(taskId: TaskId, cycleId?: TaskCycleId): Promise<number>;
@@ -186,6 +209,7 @@ export interface TaskEventStore {
 
 export interface Stores {
   readonly projects: ProjectStore;
+  readonly verificationContracts: VerificationContractStore;
   readonly tasks: TaskStore;
   readonly questions: QuestionStore;
   readonly attachments: AttachmentMetadataStore;
@@ -193,6 +217,8 @@ export interface Stores {
   readonly connections: ConnectionStore;
   readonly agentProfiles: AgentProfileStore;
   readonly runs: RunStore;
+  readonly verificationResults: VerificationResultStore;
+  readonly runProvenance: RunProvenanceStore;
   readonly cycles: CycleStore;
   readonly messages: MessageStore;
   readonly specRevisions: SpecRevisionStore;

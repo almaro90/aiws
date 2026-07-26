@@ -4,6 +4,9 @@ export {
   listProjectsSchema,
   loginSchema,
   projectIdSchema,
+  projectReadinessRequestSchema,
+  replaceVerificationContractSchema,
+  disableVerificationContractSchema,
   updateProjectSchema,
   validationDetails,
 } from "./schemas/projects.ts";
@@ -42,6 +45,10 @@ export {
   registerConnectionSchema,
   reconcileRunsSchema,
   retryRunSchema,
+  recordVerificationResultsSchema,
+  waiveVerificationSchema,
+  recordRunProvenanceSchema,
   runIdSchema,
+  deliveryIdSchema,
   setAgentProfileEnabledSchema,
 } from "./schemas/automation.ts";

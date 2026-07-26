@@ -30,6 +30,8 @@ describe("curation runner startup", () => {
         baseSha: null,
         headSha: null,
         summary: null,
+        verificationContractRevision: null,
+        verificationWaiverRunId: null,
       },
       task: {
         id: `tsk_${"0".repeat(26)}`,
@@ -37,6 +39,7 @@ describe("curation runner startup", () => {
         userRequest: "Produce a specification.",
         curatorSpec: "",
         version: 2,
+        currentCycleId: `cyc_${"0".repeat(26)}`,
         questions: [],
         attachments: [],
         cycles: [],
@@ -56,6 +59,7 @@ describe("curation runner startup", () => {
         reasoningEffort: "medium",
       },
       delivery: null,
+      verificationContract: null,
     } satisfies Assignment;
 
     await materializeCurationContext(workspaces, assignment, async () => new Uint8Array());

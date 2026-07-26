@@ -1,6 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { ArchiveIcon, ArrowRightIcon, PlusIcon, RotateCcwIcon } from "lucide-react";
+import {
+  ArchiveIcon,
+  ArrowRightIcon,
+  CircleCheckIcon,
+  CircleXIcon,
+  PlusIcon,
+  RotateCcwIcon,
+  StethoscopeIcon,
+} from "lucide-react";
 import { useEffect, useId, useMemo, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { toast } from "sonner";
@@ -52,7 +60,7 @@ import { api, apiFieldMessage } from "../lib/api.ts";
 import { focusFirstInvalid, UnsavedChangesBadge, UnsavedChangesGuard } from "../lib/form-state.tsx";
 import { mergePageItems, parseProjectFilters, serializeProjectFilters } from "../lib/query.ts";
 import { cn } from "../lib/utils.ts";
-import type { Project } from "../lib/types.ts";
+import type { Project, ProjectReadinessReport, VerificationCommand } from "../lib/types.ts";
 
 interface ProjectFields {
   name: string;
@@ -269,6 +277,7 @@ function ProjectAutomation({
   const [scheduleTimezone, setScheduleTimezone] = useState(project.scheduleTimezone);
   const [maxConcurrency, setMaxConcurrency] = useState(String(project.maxConcurrency));
   const [automationEnabled, setAutomationEnabled] = useState(project.automationEnabled);
+  const [readyPolicy, setReadyPolicy] = useState(project.readyPolicy);
   const profileOptions = [
     { value: "none", label: "Sin perfil" },
     ...(profiles.data
@@ -282,7 +291,8 @@ function ProjectAutomation({
     scheduleCron !== (project.scheduleCron ?? "") ||
     scheduleTimezone !== project.scheduleTimezone ||
     maxConcurrency !== String(project.maxConcurrency) ||
-    automationEnabled !== project.automationEnabled;
+    automationEnabled !== project.automationEnabled ||
+    readyPolicy !== project.readyPolicy;
   useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange]);
   useEffect(() => {
     setDefaultBranch(project.defaultBranch ?? "");
@@ -292,6 +302,7 @@ function ProjectAutomation({
     setScheduleTimezone(project.scheduleTimezone);
     setMaxConcurrency(String(project.maxConcurrency));
     setAutomationEnabled(project.automationEnabled);
+    setReadyPolicy(project.readyPolicy);
   }, [project]);
   const localError =
     Number.isInteger(Number(maxConcurrency)) &&
@@ -310,6 +321,7 @@ function ProjectAutomation({
         scheduleCron: scheduleCron || null,
         scheduleTimezone,
         maxConcurrency: Number(maxConcurrency),
+        readyPolicy,
       }),
     onSuccess: (value) => {
       client.setQueryData(["project", project.id], value);
@@ -396,6 +408,35 @@ function ProjectAutomation({
               {apiFieldMessage(save.error, "curationAgentProfileId")}
             </FieldError>
           </Field>
+          {project.repositoryMode === "managed" ? (
+            <Field data-invalid={Boolean(apiFieldMessage(save.error, "readyPolicy"))}>
+              <FieldLabel htmlFor={`ready-policy-${project.id}`}>Decisión de Ready</FieldLabel>
+              <Select
+                items={[
+                  { value: "curator_decides", label: "El curator decide" },
+                  { value: "manual_approval_required", label: "Requiere aprobación manual" },
+                ]}
+                value={readyPolicy}
+                onValueChange={(value) =>
+                  value && setReadyPolicy(value as "curator_decides" | "manual_approval_required")
+                }
+              >
+                <SelectTrigger id={`ready-policy-${project.id}`} className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="curator_decides">El curator decide</SelectItem>
+                  <SelectItem value="manual_approval_required">
+                    Requiere aprobación manual
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              <FieldDescription>
+                Se captura al iniciar cada Run de Curation y no reinterpreta Runs existentes.
+              </FieldDescription>
+              <FieldError>{apiFieldMessage(save.error, "readyPolicy")}</FieldError>
+            </Field>
+          ) : null}
         </CardContent>
       </Card>
       <Card>
@@ -645,6 +686,7 @@ export function ProjectDetailPage({ projectId }: { readonly projectId: string })
   const tasksTitleId = useId();
   const [repositoryDirty, setRepositoryDirty] = useState(false);
   const [configurationDirty, setConfigurationDirty] = useState(false);
+  const [verificationDirty, setVerificationDirty] = useState(false);
   const client = useQueryClient();
   const query = useQuery({
     queryKey: ["project", projectId],
@@ -684,7 +726,9 @@ export function ProjectDetailPage({ projectId }: { readonly projectId: string })
       <PageHeader
         title={project.name}
         description="Inventario, Curation e Implementation del Project."
-        actions={<UnsavedChangesBadge dirty={repositoryDirty || configurationDirty} />}
+        actions={
+          <UnsavedChangesBadge dirty={repositoryDirty || configurationDirty || verificationDirty} />
+        }
       />
       <ProjectForm
         title="Repositorio"
@@ -734,6 +778,8 @@ export function ProjectDetailPage({ projectId }: { readonly projectId: string })
         </CardContent>
       </Card>
       <ProjectAutomation project={project} onDirtyChange={setConfigurationDirty} />
+      <ProjectVerificationContract project={project} onDirtyChange={setVerificationDirty} />
+      <ProjectReadiness project={project} />
       {archive.isError ? (
         <>
           <ErrorNotice error={archive.error} />
@@ -797,8 +843,251 @@ export function ProjectDetailPage({ projectId }: { readonly projectId: string })
           <Empty title="Sin Tasks">Este Project todavía no tiene Tasks activas.</Empty>
         )}
       </section>
-      <UnsavedChangesGuard dirty={repositoryDirty || configurationDirty} />
+      <UnsavedChangesGuard dirty={repositoryDirty || configurationDirty || verificationDirty} />
     </>
+  );
+}
+
+function ProjectVerificationContract({
+  project,
+  onDirtyChange,
+}: {
+  readonly project: Project;
+  readonly onDirtyChange: (dirty: boolean) => void;
+}) {
+  const client = useQueryClient();
+  const state = useQuery({
+    queryKey: ["verification-contract", project.id],
+    queryFn: () => api.verificationContract(project.id),
+  });
+  const history = useQuery({
+    queryKey: ["verification-contract-history", project.id],
+    queryFn: () => api.verificationContractHistory(project.id),
+  });
+  const [commandsJson, setCommandsJson] = useState("[]");
+  const [edited, setEdited] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!edited && state.data !== undefined) {
+      setCommandsJson(JSON.stringify(state.data.active?.commands ?? [], null, 2));
+    }
+  }, [edited, state.data]);
+  useEffect(() => onDirtyChange(edited), [edited, onDirtyChange]);
+  const synchronize = (value: Awaited<ReturnType<typeof api.verificationContract>>) => {
+    client.setQueryData(["verification-contract", project.id], value);
+    void client.invalidateQueries({ queryKey: ["verification-contract-history", project.id] });
+    setCommandsJson(JSON.stringify(value.active?.commands ?? [], null, 2));
+    setEdited(false);
+    setLocalError(null);
+  };
+  const replace = useMutation({
+    mutationFn: (commands: VerificationCommand[]) =>
+      api.replaceVerificationContract(project.id, {
+        expectedRevision: state.data?.latestRevision ?? null,
+        commands,
+      }),
+    onSuccess: (value) => {
+      synchronize(value);
+      toast.success(`Verification Contract revision ${value.latestRevision} guardada`);
+    },
+  });
+  const disable = useMutation({
+    mutationFn: () => {
+      const revision = state.data?.latestRevision;
+      if (revision == null) throw new Error("No active Verification Contract.");
+      return api.disableVerificationContract(project.id, revision);
+    },
+    onSuccess: (value) => {
+      synchronize(value);
+      toast.success("Verification Contract desactivado");
+    },
+  });
+  const save = () => {
+    try {
+      const parsed: unknown = JSON.parse(commandsJson);
+      if (!Array.isArray(parsed)) throw new Error("El documento debe ser un array JSON.");
+      setLocalError(null);
+      replace.mutate(parsed as VerificationCommand[]);
+    } catch (error) {
+      setLocalError(error instanceof Error ? error.message : "JSON inválido.");
+    }
+  };
+  if (state.isError) {
+    return <ErrorNotice error={state.error} retry={() => void state.refetch()} />;
+  }
+  return (
+    <Card size="sm">
+      <CardHeader>
+        <CardTitle>Verification Contract</CardTitle>
+      </CardHeader>
+      <CardContent className="grid gap-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant={state.data?.active ? "default" : "outline"}>
+            {state.data?.active
+              ? `Activo · revision ${state.data.active.revision}`
+              : "No configurado"}
+          </Badge>
+          <span className="text-sm text-muted-foreground">
+            Cada guardado crea una revisión inmutable.
+          </span>
+        </div>
+        <Field data-invalid={Boolean(localError)}>
+          <FieldLabel htmlFor={`verification-contract-${project.id}`}>Comandos JSON</FieldLabel>
+          <Textarea
+            id={`verification-contract-${project.id}`}
+            className="min-h-56 font-mono text-xs"
+            value={commandsJson}
+            disabled={project.archivedAt !== null}
+            aria-invalid={Boolean(localError)}
+            onChange={(event) => {
+              setCommandsJson(event.target.value);
+              setEdited(true);
+              setLocalError(null);
+            }}
+          />
+          <FieldDescription>
+            Array de name, executable, args, required y timeoutSeconds. Se ejecutará como argv desde
+            el root del repositorio, sin shell, entorno ni working directory alternativo.
+          </FieldDescription>
+          <FieldError>{localError}</FieldError>
+        </Field>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            disabled={project.archivedAt !== null || replace.isPending || !edited}
+            onClick={save}
+          >
+            Guardar nueva revisión
+          </Button>
+          {state.data?.active ? (
+            <ConfirmAction
+              trigger={
+                <Button
+                  variant="outline"
+                  disabled={project.archivedAt !== null || disable.isPending}
+                >
+                  Desactivar contrato
+                </Button>
+              }
+              title="Desactivar Verification Contract"
+              description="Se conservará toda la historia y los Runs ya creados mantendrán su revisión."
+              confirmLabel="Desactivar"
+              onConfirm={() => disable.mutate()}
+            />
+          ) : null}
+        </div>
+        {replace.isError ? <ErrorNotice error={replace.error} /> : null}
+        {disable.isError ? <ErrorNotice error={disable.error} /> : null}
+        <div className="grid gap-2">
+          <strong className="text-sm">Historial</strong>
+          {history.isError ? (
+            <ErrorNotice error={history.error} retry={() => void history.refetch()} />
+          ) : history.data?.length ? (
+            <div className="grid gap-2">
+              {history.data.map((revision) => (
+                <div
+                  key={revision.revision}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3 text-sm"
+                >
+                  <span>
+                    Revision {revision.revision} ·{" "}
+                    {revision.enabled ? `${revision.commands.length} comandos` : "desactivada"}
+                  </span>
+                  <span className="text-muted-foreground">{formatDate(revision.createdAt)}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">Todavía no hay revisiones.</p>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ProjectReadiness({ project }: { readonly project: Project }) {
+  const [report, setReport] = useState<ProjectReadinessReport | null>(null);
+  const check = useMutation({
+    mutationFn: (depth: "standard" | "deep") => api.projectReadiness(project.id, depth),
+    onSuccess: (value) => {
+      setReport(value);
+      toast[value.ok ? "success" : "error"](
+        value.ok ? "Project preparado" : "Project necesita atención",
+      );
+    },
+  });
+  const disabled = project.repositoryMode !== "managed" || project.archivedAt !== null;
+  return (
+    <Card size="sm">
+      <CardHeader>
+        <CardTitle>Comprobar Project</CardTitle>
+      </CardHeader>
+      <CardContent className="grid gap-4">
+        <p className="text-sm text-muted-foreground">
+          Comprueba configuración, provider, rama, perfiles y runner sin crear una Task ni un Run.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            disabled={disabled || check.isPending}
+            onClick={() => check.mutate("standard")}
+          >
+            <StethoscopeIcon /> Comprobar
+          </Button>
+          <ConfirmAction
+            trigger={
+              <Button variant="outline" disabled={disabled || check.isPending}>
+                Probe profundo
+              </Button>
+            }
+            title="Ejecutar probe profundo"
+            description="Creará y eliminará contenedores efímeros para validar imagen, red, workspace, toolchain y autenticación de modelos."
+            confirmLabel="Ejecutar probe"
+            onConfirm={() => check.mutate("deep")}
+          />
+        </div>
+        {project.repositoryMode !== "managed" ? (
+          <p className="text-sm text-muted-foreground">
+            Project Readiness se aplica únicamente a Projects gestionados.
+          </p>
+        ) : null}
+        {check.isError ? <ErrorNotice error={check.error} /> : null}
+        {report ? <ReadinessReport report={report} /> : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ReadinessReport({ report }: { readonly report: ProjectReadinessReport }) {
+  return (
+    <section className="grid gap-2" aria-label="Resultado de Project Readiness">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <strong>{report.ok ? "Preparado" : "Necesita atención"}</strong>
+        <span className="text-xs text-muted-foreground">
+          {report.depth === "deep" ? "Profundo" : "Estándar"} · {report.durationMs} ms ·{" "}
+          {formatDate(report.checkedAt)}
+        </span>
+      </div>
+      <ul className="grid gap-2">
+        {report.checks.map((item) => (
+          <li className="flex items-start gap-2 rounded-lg bg-muted/40 p-3" key={item.id}>
+            {item.status === "pass" ? (
+              <CircleCheckIcon className="mt-0.5 size-4 shrink-0 text-primary" />
+            ) : item.status === "fail" ? (
+              <CircleXIcon className="mt-0.5 size-4 shrink-0 text-destructive" />
+            ) : (
+              <span aria-hidden className="mt-0.5 w-4 shrink-0 text-center">
+                •
+              </span>
+            )}
+            <span>
+              <strong className="block text-sm">{item.id.replaceAll("_", " ")}</strong>
+              <span className="text-sm text-muted-foreground">{item.message}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

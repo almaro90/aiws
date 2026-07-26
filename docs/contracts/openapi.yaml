@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: AIWS API
-  version: 0.6.1
-  description: Contract for AIWS v0.6.1.
+  version: 0.8.0
+  description: Contract for AIWS v0.8.0.
   license:
     name: GNU Affero General Public License v3.0 only
     identifier: AGPL-3.0-only
@@ -509,6 +509,56 @@ paths:
         "200":
           description: Updated Run
           content: { application/json: { schema: { $ref: "#/components/schemas/Run" } } }
+  /runs/{runId}/verification:
+    get:
+      tags: [Runs]
+      operationId: getRunVerification
+      parameters: [{ $ref: "#/components/parameters/RunId" }]
+      responses:
+        "200":
+          description: Immutable verification evidence
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/VerificationResult" } }
+  /runs/{runId}/verification-results:
+    post:
+      tags: [Runs]
+      operationId: recordRunVerification
+      parameters: [{ $ref: "#/components/parameters/RunId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RecordVerificationResultsRequest" }
+      responses:
+        "200": { description: Run advanced or failed, content: { application/json: { schema: { $ref: "#/components/schemas/Run" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+  /runs/{runId}/provenance:
+    get:
+      tags: [Runs]
+      operationId: getRunProvenance
+      parameters: [{ $ref: "#/components/parameters/RunId" }]
+      responses:
+        "200": { description: Immutable Run provenance, content: { application/json: { schema: { $ref: "#/components/schemas/RunProvenance" } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [Runs]
+      operationId: recordRunProvenance
+      parameters: [{ $ref: "#/components/parameters/RunId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RecordRunProvenanceRequest" }
+      responses:
+        "201": { description: Provenance stored, content: { application/json: { schema: { $ref: "#/components/schemas/RunProvenance" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationError" }
   /runs/{runId}/git-credentials:
     post:
       tags: [Runs]
@@ -594,6 +644,83 @@ paths:
         content: { application/json: { schema: { $ref: "#/components/schemas/CancelRunRequest" } } }
       responses:
         "200": { description: Cancelled Run, content: { application/json: { schema: { $ref: "#/components/schemas/Run" } } } }
+  /runs/{runId}/waive-verification:
+    post:
+      tags: [Runs]
+      operationId: waiveRunVerification
+      parameters:
+        - { $ref: "#/components/parameters/RunId" }
+        - { $ref: "#/components/parameters/IfMatch" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WaiveVerificationRequest" }
+      responses:
+        "201": { description: Waiver publication assignment, content: { application/json: { schema: { $ref: "#/components/schemas/RunAssignment" } } } }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+  /attention:
+    get:
+      tags: [Attention]
+      operationId: listAttention
+      summary: List deduplicated situations that require an operator
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+        - { $ref: "#/components/parameters/Cursor" }
+      responses:
+        "200":
+          description: Attention projection
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AttentionPage" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+  /deliveries/{deliveryId}/projection:
+    get:
+      tags: [Deliveries]
+      operationId: getDeliveryProjection
+      parameters:
+        - name: deliveryId
+          in: path
+          required: true
+          schema: { $ref: "#/components/schemas/DeliveryId" }
+      responses:
+        "200": { description: Last external observation, content: { application/json: { schema: { $ref: "#/components/schemas/Delivery" } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /deliveries/{deliveryId}/projection/refresh:
+    post:
+      tags: [Deliveries]
+      operationId: refreshDeliveryProjection
+      parameters:
+        - name: deliveryId
+          in: path
+          required: true
+          schema: { $ref: "#/components/schemas/DeliveryId" }
+      responses:
+        "200": { description: Refreshed observation, content: { application/json: { schema: { $ref: "#/components/schemas/Delivery" } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "502": { description: Safe provider synchronization failure, content: { application/json: { schema: { $ref: "#/components/schemas/ErrorEnvelope" } } } }
+  /projects/{projectId}/metrics:
+    get:
+      tags: [Metrics]
+      operationId: getProjectMetrics
+      parameters:
+        - { $ref: "#/components/parameters/ProjectId" }
+        - name: from
+          in: query
+          required: true
+          schema: { $ref: "#/components/schemas/Timestamp" }
+        - name: to
+          in: query
+          required: true
+          schema: { $ref: "#/components/schemas/Timestamp" }
+      responses:
+        "200": { description: Local product metrics, content: { application/json: { schema: { $ref: "#/components/schemas/ProjectMetrics" } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
   /projects:
     get:
       tags: [Projects]
@@ -704,6 +831,131 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+  /projects/{projectId}/readiness-check:
+    post:
+      tags: [Projects]
+      operationId: checkProjectReadiness
+      summary: Run an ephemeral readiness check for a managed Project
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectReadinessRequest"
+      responses:
+        "200":
+          description: Ephemeral Project readiness report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectReadinessReport"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "503":
+          description: Readiness capability unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /projects/{projectId}/verification-contract:
+    get:
+      tags: [Projects]
+      operationId: getVerificationContract
+      summary: Get the effective Verification Contract state
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Verification Contract state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerificationContractState"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [Projects]
+      operationId: replaceVerificationContract
+      summary: Append and activate a complete Verification Contract revision
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReplaceVerificationContractRequest"
+      responses:
+        "200":
+          description: Updated Verification Contract state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerificationContractState"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /projects/{projectId}/verification-contract/revisions:
+    get:
+      tags: [Projects]
+      operationId: listVerificationContractRevisions
+      summary: List immutable Verification Contract history newest first
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Verification Contract revisions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/VerificationContractRevision"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /projects/{projectId}/verification-contract/disable:
+    post:
+      tags: [Projects]
+      operationId: disableVerificationContract
+      summary: Append a revision that disables Project verification
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DisableVerificationContractRequest"
+      responses:
+        "200":
+          description: Disabled Verification Contract state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerificationContractState"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
   /projects/{projectId}/archive:
     post:
       tags: [Projects]
@@ -1601,6 +1853,9 @@ components:
     AccountScope:
       type: string
       enum: [personal, work]
+    ReadyPolicy:
+      type: string
+      enum: [curator_decides, manual_approval_required]
     TaskStatus:
       type: string
       enum: [draft, curating, blocked, ready, implementing, done]
@@ -1710,6 +1965,7 @@ components:
         - scheduleCron
         - scheduleTimezone
         - maxConcurrency
+        - readyPolicy
         - createdAt
         - updatedAt
         - archivedAt
@@ -1747,6 +2003,7 @@ components:
         scheduleCron: { type: [string, "null"] }
         scheduleTimezone: { type: string }
         maxConcurrency: { type: integer, minimum: 1, maximum: 16 }
+        readyPolicy: { $ref: "#/components/schemas/ReadyPolicy" }
         createdAt:
           $ref: "#/components/schemas/Timestamp"
         updatedAt:
@@ -1806,6 +2063,91 @@ components:
         scheduleCron: { type: [string, "null"] }
         scheduleTimezone: { type: string }
         maxConcurrency: { type: integer, minimum: 1, maximum: 16 }
+        readyPolicy: { $ref: "#/components/schemas/ReadyPolicy" }
+    ProjectReadinessRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        depth: { type: string, enum: [standard, deep], default: standard }
+    ProjectReadinessCheck:
+      type: object
+      additionalProperties: false
+      required: [id, status, message, details]
+      properties:
+        id: { type: string, minLength: 1, maxLength: 120 }
+        status: { type: string, enum: [pass, warning, fail, skipped] }
+        message: { type: string, minLength: 1, maxLength: 500 }
+        details:
+          type: object
+          additionalProperties:
+            type: [string, number, boolean, "null"]
+    ProjectReadinessReport:
+      type: object
+      additionalProperties: false
+      required: [projectId, depth, checkedAt, durationMs, ok, checks]
+      properties:
+        projectId: { $ref: "#/components/schemas/ProjectId" }
+        depth: { type: string, enum: [standard, deep] }
+        checkedAt: { $ref: "#/components/schemas/Timestamp" }
+        durationMs: { type: integer, minimum: 0 }
+        ok: { type: boolean }
+        checks:
+          type: array
+          items: { $ref: "#/components/schemas/ProjectReadinessCheck" }
+    VerificationCommand:
+      type: object
+      additionalProperties: false
+      required: [name, executable, args, required, timeoutSeconds]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        executable: { type: string, minLength: 1, maxLength: 1024 }
+        args:
+          type: array
+          maxItems: 100
+          items: { type: string, maxLength: 4096 }
+        required: { type: boolean }
+        timeoutSeconds: { type: integer, minimum: 1, maximum: 3600 }
+    VerificationContractRevision:
+      type: object
+      additionalProperties: false
+      required: [projectId, revision, enabled, commands, createdAt]
+      properties:
+        projectId: { $ref: "#/components/schemas/ProjectId" }
+        revision: { type: integer, minimum: 1 }
+        enabled: { type: boolean }
+        commands:
+          type: array
+          maxItems: 20
+          items: { $ref: "#/components/schemas/VerificationCommand" }
+        createdAt: { $ref: "#/components/schemas/Timestamp" }
+    VerificationContractState:
+      type: object
+      additionalProperties: false
+      required: [projectId, latestRevision, active]
+      properties:
+        projectId: { $ref: "#/components/schemas/ProjectId" }
+        latestRevision: { type: [integer, "null"], minimum: 1 }
+        active:
+          oneOf:
+            - { $ref: "#/components/schemas/VerificationContractRevision" }
+            - { type: "null" }
+    ReplaceVerificationContractRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedRevision, commands]
+      properties:
+        expectedRevision: { type: [integer, "null"], minimum: 1 }
+        commands:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items: { $ref: "#/components/schemas/VerificationCommand" }
+    DisableVerificationContractRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedRevision]
+      properties:
+        expectedRevision: { type: integer, minimum: 1 }
     ProjectPage:
       type: object
       additionalProperties: false
@@ -2093,12 +2435,14 @@ components:
         - project
         - questions
         - attachments
+        - specRevisions
         - createdAt
         - updatedAt
         - archivedAt
         - automationPaused
         - currentCycle
         - currentDelivery
+        - readyApprovalPending
       properties:
         id:
           $ref: "#/components/schemas/TaskId"
@@ -2126,6 +2470,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Attachment"
+        specRevisions:
+          type: array
+          items:
+            $ref: "#/components/schemas/SpecRevision"
         createdAt:
           $ref: "#/components/schemas/Timestamp"
         updatedAt:
@@ -2135,6 +2483,8 @@ components:
             - $ref: "#/components/schemas/Timestamp"
             - type: "null"
         automationPaused:
+          type: boolean
+        readyApprovalPending:
           type: boolean
         currentCycle: { $ref: "#/components/schemas/TaskCycle" }
         currentDelivery:
@@ -2286,7 +2636,7 @@ components:
     Run:
       type: object
       additionalProperties: false
-      required: [id, taskId, cycleId, deliveryId, projectId, agentProfileId, kind, outcome, attempt, status, taskVersion, executionStage, resumeFromRunId, branchName, baseSha, headSha, prUrl, summary, errorCode, errorMessage, logsStorageKey, heartbeatAt, startedAt, finishedAt, createdAt, updatedAt]
+      required: [id, taskId, cycleId, deliveryId, projectId, agentProfileId, kind, outcome, attempt, status, taskVersion, executionStage, resumeFromRunId, branchName, baseSha, headSha, prUrl, summary, errorCode, errorMessage, logsStorageKey, heartbeatAt, startedAt, finishedAt, readyPolicy, verificationContractRevision, verificationWaiverRunId, verificationWaiverReason, createdAt, updatedAt]
       properties:
         id: { $ref: "#/components/schemas/RunId" }
         taskId: { $ref: "#/components/schemas/TaskId" }
@@ -2296,9 +2646,9 @@ components:
         projectId: { $ref: "#/components/schemas/ProjectId" }
         agentProfileId: { $ref: "#/components/schemas/AgentProfileId" }
         kind: { $ref: "#/components/schemas/RunKind" }
-        outcome: { type: [string, "null"], enum: [ready, blocked, null] }
+        outcome: { type: [string, "null"], enum: [ready, blocked, approval_required, null] }
         attempt: { type: integer, minimum: 1 }
-        status: { type: string, enum: [queued, preparing, running, publishing, succeeded, failed, cancelled] }
+        status: { type: string, enum: [queued, preparing, running, verifying, publishing, succeeded, failed, cancelled] }
         taskVersion: { type: integer, minimum: 1 }
         executionStage: { type: string, enum: [agent, publishing] }
         resumeFromRunId:
@@ -2314,12 +2664,18 @@ components:
         heartbeatAt: { oneOf: [{ $ref: "#/components/schemas/Timestamp" }, { type: "null" }] }
         startedAt: { oneOf: [{ $ref: "#/components/schemas/Timestamp" }, { type: "null" }] }
         finishedAt: { oneOf: [{ $ref: "#/components/schemas/Timestamp" }, { type: "null" }] }
+        readyPolicy:
+          oneOf: [{ $ref: "#/components/schemas/ReadyPolicy" }, { type: "null" }]
+        verificationContractRevision: { type: [integer, "null"], minimum: 1 }
+        verificationWaiverRunId:
+          oneOf: [{ $ref: "#/components/schemas/RunId" }, { type: "null" }]
+        verificationWaiverReason: { type: [string, "null"], maxLength: 2000 }
         createdAt: { $ref: "#/components/schemas/Timestamp" }
         updatedAt: { $ref: "#/components/schemas/Timestamp" }
     RunAssignment:
       type: object
       additionalProperties: false
-      required: [run, task, project, agentProfile, delivery]
+      required: [run, task, project, agentProfile, delivery, verificationContract]
       properties:
         run: { $ref: "#/components/schemas/Run" }
         task: { $ref: "#/components/schemas/RunTask" }
@@ -2327,10 +2683,12 @@ components:
         agentProfile: { $ref: "#/components/schemas/AgentProfile" }
         delivery:
           oneOf: [{ $ref: "#/components/schemas/Delivery" }, { type: "null" }]
+        verificationContract:
+          oneOf: [{ $ref: "#/components/schemas/VerificationContractRevision" }, { type: "null" }]
     RunTask:
       type: object
       additionalProperties: false
-      required: [id, projectId, title, userRequest, curatorSpec, status, prUrl, version, automationPaused, currentCycleId, currentDeliveryId, questions, attachments, cycles, messages, specRevisions, createdAt, updatedAt, archivedAt]
+      required: [id, projectId, title, userRequest, curatorSpec, status, prUrl, version, automationPaused, readyApprovalPending, currentCycleId, currentDeliveryId, questions, attachments, cycles, messages, specRevisions, createdAt, updatedAt, archivedAt]
       properties:
         id: { $ref: "#/components/schemas/TaskId" }
         projectId: { $ref: "#/components/schemas/ProjectId" }
@@ -2341,6 +2699,7 @@ components:
         prUrl: { type: [string, "null"], format: uri }
         version: { type: integer, minimum: 1 }
         automationPaused: { type: boolean }
+        readyApprovalPending: { type: boolean }
         currentCycleId: { $ref: "#/components/schemas/TaskCycleId" }
         currentDeliveryId:
           oneOf: [{ $ref: "#/components/schemas/DeliveryId" }, { type: "null" }]
@@ -2361,7 +2720,7 @@ components:
       additionalProperties: false
       required: [status]
       properties:
-        status: { type: string, enum: [preparing, running, publishing] }
+        status: { type: string, enum: [preparing, running, verifying, publishing] }
         baseSha: { type: string, pattern: '^[0-9a-f]{40,64}$' }
         headSha: { type: string, pattern: '^[0-9a-f]{40,64}$' }
         logsStorageKey: { type: string, maxLength: 512 }
@@ -2427,6 +2786,173 @@ components:
       additionalProperties: false
       properties:
         mode: { type: string, enum: [auto, full, publish_only], default: auto }
+    WaiveVerificationRequest:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties:
+        reason: { type: string, minLength: 1, maxLength: 2000 }
+    VerificationResult:
+      type: object
+      additionalProperties: false
+      required: [runId, position, name, executable, args, required, status, startedAt, finishedAt, durationMs, exitCode, stdoutExcerpt, stderrExcerpt, imageDigest, toolchainIdentity]
+      properties:
+        runId: { $ref: "#/components/schemas/RunId" }
+        position: { type: integer, minimum: 0, maximum: 19 }
+        name: { type: string, minLength: 1, maxLength: 120 }
+        executable: { type: string, minLength: 1, maxLength: 1024 }
+        args: { type: array, maxItems: 100, items: { type: string, maxLength: 4096 } }
+        required: { type: boolean }
+        status: { type: string, enum: [passed, failed, timed_out, spawn_error, cancelled] }
+        startedAt: { $ref: "#/components/schemas/Timestamp" }
+        finishedAt: { $ref: "#/components/schemas/Timestamp" }
+        durationMs: { type: integer, minimum: 0 }
+        exitCode: { type: [integer, "null"] }
+        stdoutExcerpt: { type: string, maxLength: 16384 }
+        stderrExcerpt: { type: string, maxLength: 16384 }
+        imageDigest: { type: string, maxLength: 512 }
+        toolchainIdentity: { type: string, maxLength: 1024 }
+    RecordVerificationResultsRequest:
+      type: object
+      additionalProperties: false
+      required: [results]
+      properties:
+        results:
+          type: array
+          maxItems: 20
+          items:
+            allOf:
+              - { $ref: "#/components/schemas/VerificationResult" }
+              - type: object
+                properties: { runId: false }
+    RunProvenance:
+      type: object
+      additionalProperties: true
+      required: [runId, schemaVersion, aiwsVersion, agentImage, agentImageDigest, baseSha, headSha, branchName, promptBuilderVersion, promptHash, verificationContractRevision, publicationOutcome, createdAt]
+      properties:
+        runId: { $ref: "#/components/schemas/RunId" }
+        schemaVersion: { type: integer, const: 1 }
+        aiwsVersion: { type: string }
+        agentImage: { type: string }
+        agentImageDigest: { type: string }
+        baseSha: { type: [string, "null"] }
+        headSha: { type: [string, "null"] }
+        branchName: { type: [string, "null"] }
+        promptBuilderVersion: { type: string }
+        promptHash: { type: string, pattern: '^[0-9a-f]{64}$' }
+        verificationContractRevision: { type: [integer, "null"] }
+        publicationOutcome: { type: string, enum: [not_applicable, not_attempted, published, failed, waived] }
+        createdAt: { $ref: "#/components/schemas/Timestamp" }
+    RecordRunProvenanceRequest:
+      allOf:
+        - { $ref: "#/components/schemas/RunProvenance" }
+        - type: object
+          properties:
+            runId: false
+            schemaVersion: false
+            createdAt: false
+    AttentionItem:
+      type: object
+      additionalProperties: false
+      required: [id, reason, projectId, projectName, taskId, taskTitle, runId, connectionId, explanation, detectedAt, nextAction]
+      properties:
+        id: { type: string }
+        reason:
+          type: string
+          enum: [approval_pending, questions_open, run_failed, publication_recoverable, automation_paused, connection_reauthorization, runner_unavailable, verification_failed, delivery_checks_failed]
+        projectId: { type: [string, "null"] }
+        projectName: { type: [string, "null"] }
+        taskId: { type: [string, "null"] }
+        taskTitle: { type: [string, "null"] }
+        runId: { type: [string, "null"] }
+        connectionId: { type: [string, "null"] }
+        explanation: { type: string }
+        detectedAt: { $ref: "#/components/schemas/Timestamp" }
+        nextAction:
+          type: object
+          additionalProperties: false
+          required: [kind, label, href]
+          properties:
+            kind: { type: string, enum: [open_task, retry_publication, reauthorize, inspect_runner] }
+            label: { type: string }
+            href: { type: string }
+    AttentionPage:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/AttentionItem" } }
+        nextCursor: { type: [string, "null"] }
+    ProjectMetrics:
+      type: object
+      additionalProperties: false
+      required: [projectId, from, to, generatedAt, coverage, flow, runs, retries, verification, delivery]
+      properties:
+        projectId: { $ref: "#/components/schemas/ProjectId" }
+        from: { $ref: "#/components/schemas/Timestamp" }
+        to: { $ref: "#/components/schemas/Timestamp" }
+        generatedAt: { $ref: "#/components/schemas/Timestamp" }
+        coverage:
+          type: object
+          additionalProperties: false
+          required: [tasks, readySamples, runs, runsWithProvenance, deliveries, deliveriesObserved, staleDeliveries]
+          properties:
+            tasks: { type: integer, minimum: 0 }
+            readySamples: { type: integer, minimum: 0 }
+            runs: { type: integer, minimum: 0 }
+            runsWithProvenance: { type: integer, minimum: 0 }
+            deliveries: { type: integer, minimum: 0 }
+            deliveriesObserved: { type: integer, minimum: 0 }
+            staleDeliveries: { type: integer, minimum: 0 }
+        flow:
+          type: object
+          additionalProperties: false
+          required: [requestToReadyAverageMs, blockedDurationMs, blockedSamples, questions]
+          properties:
+            requestToReadyAverageMs: { type: [integer, "null"], minimum: 0 }
+            blockedDurationMs: { type: integer, minimum: 0 }
+            blockedSamples: { type: integer, minimum: 0 }
+            questions: { type: integer, minimum: 0 }
+        runs:
+          type: object
+          additionalProperties: false
+          required: [curation, implementation, firstAttemptSucceeded, firstAttempts]
+          properties:
+            curation: { $ref: "#/components/schemas/RunDurationMetrics" }
+            implementation: { $ref: "#/components/schemas/RunDurationMetrics" }
+            firstAttemptSucceeded: { type: integer, minimum: 0 }
+            firstAttempts: { type: integer, minimum: 0 }
+        retries:
+          type: object
+          additionalProperties: false
+          required: [full, publishOnly, waiver]
+          properties:
+            full: { type: integer, minimum: 0 }
+            publishOnly: { type: integer, minimum: 0 }
+            waiver: { type: integer, minimum: 0 }
+        verification:
+          type: object
+          additionalProperties: false
+          required: [passed, failed, requiredFailed]
+          properties:
+            passed: { type: integer, minimum: 0 }
+            failed: { type: integer, minimum: 0 }
+            requiredFailed: { type: integer, minimum: 0 }
+        delivery:
+          type: object
+          additionalProperties: false
+          required: [pullRequests, mergedObserved]
+          properties:
+            pullRequests: { type: integer, minimum: 0 }
+            mergedObserved: { type: integer, minimum: 0 }
+    RunDurationMetrics:
+      type: object
+      additionalProperties: false
+      required: [count, completedSamples, averageDurationMs]
+      properties:
+        count: { type: integer, minimum: 0 }
+        completedSamples: { type: integer, minimum: 0 }
+        averageDurationMs: { type: [integer, "null"], minimum: 0 }
     ReconcileRunsRequest:
       type: object
       additionalProperties: false
@@ -2514,13 +3040,23 @@ components:
     Delivery:
       type: object
       additionalProperties: false
-      required: [id, taskId, branchName, baseBranch, prUrl, createdAt, updatedAt]
+      required: [id, taskId, branchName, baseBranch, prUrl, prState, checksState, checksPassed, checksFailed, checksPending, externalUpdatedAt, lastSynchronizedAt, synchronizationError, createdAt, updatedAt]
       properties:
         id: { $ref: "#/components/schemas/DeliveryId" }
         taskId: { $ref: "#/components/schemas/TaskId" }
         branchName: { type: [string, "null"] }
         baseBranch: { type: [string, "null"], maxLength: 255 }
         prUrl: { type: [string, "null"], format: uri }
+        prState: { type: [string, "null"], enum: [draft, open, closed, merged, null] }
+        checksState: { type: [string, "null"], enum: [pending, passed, failed, unknown, null] }
+        checksPassed: { type: integer, minimum: 0 }
+        checksFailed: { type: integer, minimum: 0 }
+        checksPending: { type: integer, minimum: 0 }
+        externalUpdatedAt:
+          oneOf: [{ $ref: "#/components/schemas/Timestamp" }, { type: "null" }]
+        lastSynchronizedAt:
+          oneOf: [{ $ref: "#/components/schemas/Timestamp" }, { type: "null" }]
+        synchronizationError: { type: [string, "null"] }
         createdAt: { $ref: "#/components/schemas/Timestamp" }
         updatedAt: { $ref: "#/components/schemas/Timestamp" }
     TimelineItem:

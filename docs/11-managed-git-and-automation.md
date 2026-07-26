@@ -48,12 +48,12 @@ Inicializar una vez el volumen dedicado desde una terminal confiable:
 ```bash
 docker run --rm --user root \
   -v aiws-codex-auth:/codex-home \
-  aiws-agent:0.6.1 chown -R 1000:1000 /codex-home
+  aiws-agent:0.8.0 chown -R 1000:1000 /codex-home
 
 docker run --rm -it \
   -v aiws-codex-auth:/codex-home \
   -e CODEX_HOME=/codex-home \
-  aiws-agent:0.6.1 codex login --device-auth
+  aiws-agent:0.8.0 codex login --device-auth
 ```
 
 Crear después un perfil `chatgpt_session`. Cada despliegue debe usar un volumen distinto por frontera de confianza; no compartirlo entre organizaciones.
@@ -127,3 +127,10 @@ limitar la descripción.
 
 Límites: solo `dev.azure.com`; sin Azure DevOps Server, MSA, PAT, service principals, webhooks,
 Boards, Pipelines, reviewers, merge ni sincronización posterior del PR.
+
+## Project Readiness
+
+`aiws project doctor PROJECT_ID` comprueba configuración y acceso remoto sin crear trabajo de
+negocio. `--deep` añade un probe explícito en runner-manager para validar imagen, workspace, red,
+lifecycle, toolchain y autenticación de perfiles. El resultado es efímero y no sustituye los
+checks de cada Run.

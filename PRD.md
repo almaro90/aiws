@@ -1,8 +1,8 @@
 # AIWS — Product Requirements Document
 
-> Versión: v0.6.1
-> Estado: Hito 24 completado
-> Fecha: 25 de julio de 2026
+> Versión: v0.8
+> Estado: Hito 31 implementado
+> Fecha: 26 de julio de 2026
 
 ## 1. Resumen
 
@@ -541,3 +541,124 @@ Draft → Curating → Ready → Implementing → Done
 - [x] GitHub y Azure cumplen el mismo contrato operativo de repositorios, ramas, Git y PR.
 - [x] API, CLI, Web, OpenAPI, cliente generado y versión pública están sincronizados en v0.6.0.
 - [x] Todos los gates pasan sin depender de la red real de Microsoft o Azure DevOps.
+
+## 21. Hito 25 — Project Readiness
+
+- Un operador puede comprobar un Project gestionado sin crear Task, Cycle, Delivery o Run.
+- El informe es efímero, ordenado y seguro; no se persiste como configuración ni historial.
+- El modo estándar valida Project, Connection, repositorio, Base Branch, credenciales Git
+  efímeras, Agent Profiles y estado del runner.
+- El modo profundo añade imagen, workspace, red, contenedor, toolchain y autenticación/modelo.
+- El probe profundo vive únicamente en runner-manager tras una operación interna acotada.
+- GitHub y Azure DevOps comparten el mismo contrato de comprobación.
+
+### Aceptación Hito 25
+
+- [x] API, CLI y Web muestran el mismo informe `pass|warning|fail|skipped`.
+- [x] `aiws project doctor` usa modo estándar y `--deep` solicita explícitamente el probe profundo.
+- [x] El informe nunca contiene secretos, rutas físicas ni IDs de contenedor.
+- [x] Timeout, error y cancelación limpian todos los recursos efímeros.
+- [x] Existen playbooks protegidos para validar Connections reales de GitHub y Azure.
+- [x] OpenAPI, cliente generado, tests y documentación están sincronizados sin migración SQL.
+
+El smoke local, tests, contrato, build y E2E pasan. El smoke Docker y los providers reales requieren
+el gate operativo protegido y no se contabilizan como ejecutados en este entorno.
+
+## 22. Hito 26 — Aprobación Ready configurable
+
+- Cada Project define `readyPolicy=curator_decides|manual_approval_required`; el valor por defecto
+  conserva el comportamiento existente.
+- Cada Run de Curation captura la política efectiva al crearse.
+- Con aprobación manual, un resultado de curation correcto guarda título/spec y revisión, termina
+  con `outcome=approval_required`, mantiene la Task en Curating y activa
+  `readyApprovalPending=true`.
+- Una Task pendiente no puede recibir otro claim de Curation. La transición explícita
+  Curating → Ready por Web o CLI consume la aprobación y sube la versión exactamente una vez.
+- Questions nuevas/reabiertas, contexto que invalida el resultado preparado y un Cycle nuevo
+  limpian el flag. Cambiar la política del Project no reinterpreta Tasks ni Runs existentes.
+
+### Aceptación Hito 26
+
+- [x] Migración forward-only y backfill conservador.
+- [x] Snapshot de política y resultado obsoleto/concurrente probados.
+- [x] Mutación, revisión y eventos se confirman en una transacción con una subida de versión.
+- [x] API, CLI, Web, SQL, OpenAPI, cliente y timeline sincronizados.
+
+## 23. Hito 27 — Verification Contract por Project
+
+- El contrato es opcional, versionado, append-only y propiedad del Project.
+- Cada revisión ordena hasta 20 comandos con `name`, `executable`, `args`, `required` y
+  `timeoutSeconds`; no admite shell, entorno personalizado ni working directory alternativo.
+- Reemplazar o desactivar exige la revisión esperada. La desactivación crea historia y no borra
+  revisiones.
+- Cada Run de Implementation captura la revisión activa al claim; cambiar después el Project no
+  reinterpreta el Run.
+- La ausencia de contrato queda representada como revisión nula y permite continuar.
+
+### Aceptación Hito 27
+
+- [x] Crear, reemplazar, desactivar y resolver conflictos de revisión.
+- [x] Rechazar argv, nombres duplicados y límites inválidos.
+- [x] Conservar revisiones históricas y el snapshot de Runs queued.
+- [x] API, CLI, Web, SQL, OpenAPI, cliente y documentación sincronizados.
+
+## 24. Hito 28 — Verification Results y Run provenance
+
+- El runner ejecuta el contrato capturado sobre el commit local antes de publicar, mediante argv y
+  sin shell.
+- Cada comando produce evidencia inmutable y acotada. Un fallo required termina
+  `verification_failed`; uno opcional permite publicar con warning.
+- El waiver exige versión de Task y motivo, crea un nuevo attempt enlazado y reutiliza únicamente un
+  workspace limpio cuyo `HEAD` coincide con el Run fallido.
+- Cada Run conserva un registro immutable de provenance con configuración efectiva, versiones,
+  hashes y referencias seguras usadas para producir la entrega.
+
+### Aceptación Hito 28
+
+- [x] Pass/fail/timeout/spawn/cancel, truncado y redacción.
+- [x] Fallo required pausa y devuelve Ready; opcional permite publicar.
+- [x] Waiver valida workspace, commit, versión y enlace entre attempts.
+- [x] Provenance no contiene secretos ni rutas físicas de Attachments.
+- [x] API, CLI, Web, SQL, OpenAPI, cliente y documentación sincronizados.
+
+## 25. Hito 29 — Necesita atención
+
+- La bandeja es una proyección global read-only, paginada y determinista.
+- Deduplica síntomas relacionados bajo una causa primaria y excluye Tasks y Projects archivados.
+- Cada item explica qué requiere intervención, por qué y cuál es la siguiente acción existente.
+- La indisponibilidad del runner es un único item global.
+- No introduce prioridad, asignación, acknowledgement ni estado nuevo de Task.
+
+### Aceptación Hito 29
+
+- [x] Razones, precedencia, orden y paginación están probados.
+- [x] La desaparición de la causa elimina el item sin mutación adicional.
+- [x] API, CLI, Web, OpenAPI, cliente y documentación están sincronizados.
+
+## 26. Hito 30 — Delivery Projection
+
+- Delivery conserva la última observación externa de PR y checks, separada de Task.status.
+- El refresh es explícito y manual; GitHub y Azure implementan la misma seam.
+- Un error seguro conserva la última observación y marca su staleness.
+- No hay polling, webhook, merge ni transición automática de Task.
+
+### Aceptación Hito 30
+
+- [x] PR draft/open/closed/merged y checks pending/passed/failed/unknown.
+- [x] Paridad GitHub/Azure, permisos, reautorización, rate limit y error stale.
+- [x] Task Done e identidad de Delivery permanecen inmutables durante refresh.
+- [x] API, CLI, Web, SQL, OpenAPI, cliente y documentación sincronizados.
+
+## 27. Hito 31 — Trazabilidad de Spec y métricas
+
+- Task Detail compara revisiones inmutables de Spec sin inventar causalidad.
+- Las métricas se derivan localmente por Project y rango UTC desde las fuentes existentes.
+- La salida incluye cobertura y staleness de Delivery.
+- No se añade dashboard, telemetría externa, coste/tokens, presupuesto ni límite automático.
+
+### Aceptación Hito 31
+
+- [x] Rangos vacíos/parciales, Projects archivados, límites UTC, retries y Cycles.
+- [x] Métricas deterministas sin mutar las fuentes.
+- [x] Diff visible antes de Ready junto a Questions y aprobación explícita.
+- [x] API, CLI, OpenAPI, cliente y documentación sincronizados.

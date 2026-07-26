@@ -35,6 +35,7 @@ describe("CLI global behavior", () => {
   test("registers the complete documented command tree", () => {
     const program = createProgram({ io: harness().io, environment: {} });
     const project = program.commands.find((command) => command.name() === "project");
+    const verification = project?.commands.find((command) => command.name() === "verification");
     const task = program.commands.find((command) => command.name() === "task");
     const question = task?.commands.find((command) => command.name() === "question");
     const attachment = task?.commands.find((command) => command.name() === "attachment");
@@ -53,10 +54,19 @@ describe("CLI global behavior", () => {
       "create",
       "list",
       "show",
+      "metrics",
       "branches",
+      "doctor",
+      "verification",
       "update",
       "archive",
       "unarchive",
+    ]);
+    expect(verification?.commands.map((command) => command.name())).toEqual([
+      "get",
+      "history",
+      "set",
+      "disable",
     ]);
     expect(task?.commands.map((command) => command.name())).toEqual([
       "create",
@@ -290,7 +300,7 @@ describe("CLI doctor", () => {
     const fetch = async (input: string | URL | Request, init?: RequestInit) => {
       const request = new Request(input, init);
       const path = new URL(request.url).pathname;
-      if (path === "/api/v1/health") return ok({ status: "ok", version: "0.6.1" });
+      if (path === "/api/v1/health") return ok({ status: "ok", version: "0.8.0" });
       expect(request.headers.get("Authorization")).toBe(`Bearer ${token}`);
       if (path === "/api/v1/connections") return ok([]);
       if (path === "/api/v1/system/runner") {
@@ -305,7 +315,7 @@ describe("CLI doctor", () => {
     const result = JSON.parse(output.stdout());
     expect(result).toEqual({
       ok: true,
-      cliVersion: "0.6.1",
+      cliVersion: "0.8.0",
       apiUrl: "http://127.0.0.1:3000",
       checks: [
         {
@@ -318,13 +328,13 @@ describe("CLI doctor", () => {
           name: "health",
           status: "pass",
           message: "Server health is OK.",
-          details: { serverVersion: "0.6.1" },
+          details: { serverVersion: "0.8.0" },
         },
         {
           name: "version",
           status: "pass",
           message: "CLI and Server versions match.",
-          details: { serverVersion: "0.6.1" },
+          details: { serverVersion: "0.8.0" },
         },
         {
           name: "authentication",
@@ -371,7 +381,7 @@ describe("CLI doctor", () => {
         environment: {},
         fetch: async () => {
           requests += 1;
-          return ok({ status: "ok", version: "0.6.1" });
+          return ok({ status: "ok", version: "0.8.0" });
         },
       }),
     ).toBe(3);
@@ -395,12 +405,12 @@ describe("CLI doctor", () => {
         expected: 3,
         fetch: async (input: string | URL | Request) =>
           new URL(new Request(input).url).pathname === "/api/v1/health"
-            ? ok({ status: "ok", version: "0.6.1" })
+            ? ok({ status: "ok", version: "0.8.0" })
             : error(401, "unauthorized"),
       },
       {
         expected: 6,
-        fetch: async () => ok({ status: "unhealthy", version: "0.6.1" }, 503),
+        fetch: async () => ok({ status: "unhealthy", version: "0.8.0" }, 503),
       },
       {
         expected: 7,
@@ -464,7 +474,7 @@ describe("CLI doctor", () => {
     const output = harness();
     const fetch = async (input: string | URL | Request, init?: RequestInit) => {
       const path = new URL(new Request(input, init).url).pathname;
-      if (path === "/api/v1/health") return ok({ status: "ok", version: "0.6.1" });
+      if (path === "/api/v1/health") return ok({ status: "ok", version: "0.8.0" });
       if (path === "/api/v1/connections") return ok([]);
       if (path === "/api/v1/system/runner") return ok({ status: "online" });
       return ok([]);
@@ -480,6 +490,57 @@ describe("CLI doctor", () => {
 });
 
 describe("CLI inputs and commands", () => {
+  test("runs standard and deep Project Readiness with stable exit codes", async () => {
+    const requests: Array<{ readonly path: string; readonly body: unknown }> = [];
+    for (const item of [
+      { flags: [] as string[], ok: true, expectedDepth: "standard", exitCode: 0 },
+      { flags: ["--deep"], ok: false, expectedDepth: "deep", exitCode: 6 },
+    ]) {
+      const output = harness();
+      const fetch = async (input: string | URL | Request, init?: RequestInit) => {
+        const request = new Request(input, init);
+        requests.push({
+          path: new URL(request.url).pathname,
+          body: await request.clone().json(),
+        });
+        return ok({
+          projectId: "prj_01K0ABCDEFGHIJKLMNOPQRSTUV",
+          depth: item.expectedDepth,
+          checkedAt: "2026-07-26T10:00:00.000Z",
+          durationMs: 5,
+          ok: item.ok,
+          checks: [],
+        });
+      };
+      expect(
+        await runCli(
+          argv(
+            "--json",
+            "--token",
+            "token",
+            "project",
+            "doctor",
+            "prj_01K0ABCDEFGHIJKLMNOPQRSTUV",
+            ...item.flags,
+          ),
+          { io: output.io, fetch },
+        ),
+      ).toBe(item.exitCode);
+      expect(JSON.parse(output.stdout()).depth).toBe(item.expectedDepth);
+      expect(output.stderr()).toBe("");
+    }
+    expect(requests).toEqual([
+      {
+        path: "/api/v1/projects/prj_01K0ABCDEFGHIJKLMNOPQRSTUV/readiness-check",
+        body: { depth: "standard" },
+      },
+      {
+        path: "/api/v1/projects/prj_01K0ABCDEFGHIJKLMNOPQRSTUV/readiness-check",
+        body: { depth: "deep" },
+      },
+    ]);
+  });
+
   test("lists and completes Azure authorizations with full IDs and exact requests", async () => {
     const requests: Array<{ method: string; path: string; body?: unknown }> = [];
     const fetch = async (input: string | URL | Request, init?: RequestInit) => {
@@ -550,6 +611,8 @@ describe("CLI inputs and commands", () => {
           "Europe/Madrid",
           "--max-concurrency",
           "16",
+          "--ready-policy",
+          "manual-approval-required",
         ),
         { io: combined.io, fetch },
       ),
@@ -576,6 +639,7 @@ describe("CLI inputs and commands", () => {
       {
         scheduleTimezone: "Europe/Madrid",
         maxConcurrency: 16,
+        readyPolicy: "manual_approval_required",
         curationAgentProfileId: "agt_curator",
         implementationAgentProfileId: "agt_implementer",
         automationEnabled: true,
@@ -586,6 +650,75 @@ describe("CLI inputs and commands", () => {
         implementationAgentProfileId: null,
         automationEnabled: false,
         scheduleCron: null,
+      },
+    ]);
+  });
+
+  test("manages Verification Contract JSON with exact revision requests", async () => {
+    const requests: Array<{ method: string; path: string; body?: unknown }> = [];
+    const fetch = async (input: string | URL | Request, init?: RequestInit) => {
+      const request = new Request(input, init);
+      requests.push({
+        method: request.method,
+        path: new URL(request.url).pathname,
+        ...(request.method === "PUT" || request.method === "POST"
+          ? { body: await request.clone().json() }
+          : {}),
+      });
+      return ok({ projectId: "prj_1", latestRevision: 1, active: null });
+    };
+    const commands = [
+      {
+        name: "tests",
+        executable: "bun",
+        args: ["test"],
+        required: true,
+        timeoutSeconds: 300,
+      },
+    ];
+    const set = harness({ stdin: JSON.stringify(commands) });
+    expect(
+      await runCli(
+        argv(
+          "--json",
+          "--token",
+          "token",
+          "project",
+          "verification",
+          "set",
+          "prj_1",
+          "--file",
+          "-",
+          "--expected-revision",
+          "none",
+        ),
+        { io: set.io, fetch },
+      ),
+    ).toBe(0);
+    for (const command of [
+      ["project", "verification", "get", "prj_1"],
+      ["project", "verification", "history", "prj_1"],
+      ["project", "verification", "disable", "prj_1", "--expected-revision", "1"],
+    ]) {
+      expect(
+        await runCli(argv("--json", "--token", "token", ...command), {
+          io: harness().io,
+          fetch,
+        }),
+      ).toBe(0);
+    }
+    expect(requests).toEqual([
+      {
+        method: "PUT",
+        path: "/api/v1/projects/prj_1/verification-contract",
+        body: { expectedRevision: null, commands },
+      },
+      { method: "GET", path: "/api/v1/projects/prj_1/verification-contract" },
+      { method: "GET", path: "/api/v1/projects/prj_1/verification-contract/revisions" },
+      {
+        method: "POST",
+        path: "/api/v1/projects/prj_1/verification-contract/disable",
+        body: { expectedRevision: 1 },
       },
     ]);
   });
@@ -940,6 +1073,37 @@ describe("CLI inputs and commands", () => {
     expect(output.stdout()).toContain("id");
     expect(output.stdout()).toContain("prj_COMPLETE_ID");
     expect(output.stdout()).not.toContain("{");
+  });
+
+  test("exports Project metrics with the exact UTC range", async () => {
+    const output = harness();
+    const requests: string[] = [];
+    const code = await runCli(
+      argv(
+        "--json",
+        "--token",
+        "token",
+        "project",
+        "metrics",
+        "prj_1",
+        "--from",
+        "2026-01-01T00:00:00.000Z",
+        "--to",
+        "2026-02-01T00:00:00.000Z",
+      ),
+      {
+        io: output.io,
+        fetch: async (input) => {
+          requests.push(input instanceof Request ? input.url : String(input));
+          return ok({ projectId: "prj_1", coverage: { tasks: 0 } });
+        },
+      },
+    );
+    expect(code).toBe(0);
+    expect(requests[0]).toContain(
+      "/projects/prj_1/metrics?from=2026-01-01T00%3A00%3A00.000Z&to=2026-02-01T00%3A00%3A00.000Z",
+    );
+    expect(JSON.parse(output.stdout())).toMatchObject({ projectId: "prj_1" });
   });
 
   test("reports partial Task creation when an attachment cannot be read", async () => {

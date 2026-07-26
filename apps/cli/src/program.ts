@@ -1,5 +1,5 @@
 import { rename, unlink } from "node:fs/promises";
-import { apiBaseUrl, createApiClient } from "@aiws/api-client";
+import { apiBaseUrl, createApiClient, type components } from "@aiws/api-client";
 import { Command, CommanderError, InvalidArgumentError, Option } from "commander";
 import {
   type CliConfig,
@@ -17,7 +17,7 @@ import { type CliIo, processIo, readTextInput, writeError, writeResult } from ".
 
 type Environment = Readonly<Record<string, string | undefined>>;
 type ApiResult<T> = Promise<{ data?: T; error?: unknown; response: Response }>;
-const CLI_VERSION = "0.6.1";
+const CLI_VERSION = "0.8.0";
 
 type DoctorStatus = "pass" | "warning" | "fail" | "skipped";
 interface DoctorCheck {
@@ -81,11 +81,13 @@ export function createProgram(dependencies: ProgramDependencies = {}): Command {
 
   addConfigCommands(program, io, environment, paths);
   addDoctorCommand(program, io, environment, paths, dependencies.fetch);
-  addProjectCommands(program, context, emit);
+  addProjectCommands(program, context, emit, io);
   addTaskCommands(program, context, emit, io, dependencies.fetch);
   addConnectionCommands(program, context, emit);
   addAgentProfileCommands(program, context, emit);
   addRunCommands(program, context, emit);
+  addAttentionCommands(program, context, emit);
+  addDeliveryCommands(program, context, emit);
   addRunnerCommands(program, context, emit);
   return program;
 }
@@ -789,6 +791,26 @@ function addRunCommands(
       emit(await unwrap(client.GET("/runs/{runId}", { params: { path: { runId } } })), config);
     });
   run
+    .command("verification")
+    .argument("<run-id>")
+    .action(async (runId) => {
+      const { config, client } = context();
+      emit(
+        await unwrap(client.GET("/runs/{runId}/verification", { params: { path: { runId } } })),
+        config,
+      );
+    });
+  run
+    .command("provenance")
+    .argument("<run-id>")
+    .action(async (runId) => {
+      const { config, client } = context();
+      emit(
+        await unwrap(client.GET("/runs/{runId}/provenance", { params: { path: { runId } } })),
+        config,
+      );
+    });
+  run
     .command("retry")
     .argument("<run-id>")
     .requiredOption("--expected-version <number>", "expected Task version", positiveInteger)
@@ -822,6 +844,23 @@ function addRunCommands(
         config,
       );
     });
+  run
+    .command("waive-verification")
+    .argument("<run-id>")
+    .requiredOption("--expected-version <number>", "expected Task version", positiveInteger)
+    .requiredOption("--reason <reason>")
+    .action(async (runId, options) => {
+      const { config, client } = context();
+      emit(
+        await unwrap(
+          client.POST("/runs/{runId}/waive-verification", {
+            params: { path: { runId }, header: { "If-Match": `"${options.expectedVersion}"` } },
+            body: { reason: options.reason },
+          }),
+        ),
+        config,
+      );
+    });
 }
 
 function addRunnerCommands(
@@ -834,6 +873,68 @@ function addRunnerCommands(
     const { config, client } = context();
     emit(await unwrap(client.GET("/system/runner")), config);
   });
+}
+
+function addAttentionCommands(
+  program: Command,
+  context: () => { config: CliConfig; client: ReturnType<typeof createApiClient> },
+  emit: (value: unknown, config: CliConfig) => void,
+): void {
+  const attention = program
+    .command("attention")
+    .description("List situations that require an operator");
+  attention
+    .command("list")
+    .option("--limit <number>", "items per page", positiveInteger, 50)
+    .option("--cursor <cursor>")
+    .action(async (options) => {
+      if (options.limit > 100) throw new InvalidArgumentError("limit must be at most 100");
+      const { config, client } = context();
+      emit(
+        await unwrap(
+          client.GET("/attention", {
+            params: { query: compact({ limit: options.limit, cursor: options.cursor }) },
+          }),
+        ),
+        config,
+      );
+    });
+}
+
+function addDeliveryCommands(
+  program: Command,
+  context: () => { config: CliConfig; client: ReturnType<typeof createApiClient> },
+  emit: (value: unknown, config: CliConfig) => void,
+): void {
+  const delivery = program.command("delivery").description("Inspect external Delivery state");
+  delivery
+    .command("show")
+    .argument("<delivery-id>")
+    .action(async (deliveryId) => {
+      const { config, client } = context();
+      emit(
+        await unwrap(
+          client.GET("/deliveries/{deliveryId}/projection", {
+            params: { path: { deliveryId } },
+          }),
+        ),
+        config,
+      );
+    });
+  delivery
+    .command("refresh")
+    .argument("<delivery-id>")
+    .action(async (deliveryId) => {
+      const { config, client } = context();
+      emit(
+        await unwrap(
+          client.POST("/deliveries/{deliveryId}/projection/refresh", {
+            params: { path: { deliveryId } },
+          }),
+        ),
+        config,
+      );
+    });
 }
 
 export async function runCli(
@@ -894,6 +995,7 @@ function addProjectCommands(
   program: Command,
   context: () => { config: CliConfig; client: ReturnType<typeof createApiClient> },
   emit: (value: unknown, config: CliConfig) => void,
+  io: CliIo,
 ): void {
   const project = program.command("project").description("Manage projects");
 
@@ -961,6 +1063,26 @@ function addProjectCommands(
     });
 
   project
+    .command("metrics")
+    .argument("<project-id>")
+    .requiredOption("--from <timestamp>", "inclusive UTC timestamp")
+    .requiredOption("--to <timestamp>", "exclusive UTC timestamp")
+    .action(async (projectId, options) => {
+      const { config, client } = context();
+      emit(
+        await unwrap(
+          client.GET("/projects/{projectId}/metrics", {
+            params: {
+              path: { projectId },
+              query: { from: options.from, to: options.to },
+            },
+          }),
+        ),
+        config,
+      );
+    });
+
+  project
     .command("branches")
     .argument("<project-id>")
     .action(async (projectId) => {
@@ -969,6 +1091,99 @@ function addProjectCommands(
         await unwrap(
           client.GET("/projects/{projectId}/branches", {
             params: { path: { projectId } },
+          }),
+        ),
+        config,
+      );
+    });
+
+  project
+    .command("doctor")
+    .description("Check whether a managed Project is ready for automated delivery")
+    .argument("<project-id>")
+    .option("--deep", "run bounded container, workspace, network, toolchain and model probes")
+    .action(async (projectId, options) => {
+      const { config, client } = context();
+      const report = await unwrap(
+        client.POST("/projects/{projectId}/readiness-check", {
+          params: { path: { projectId } },
+          body: { depth: options.deep ? "deep" : "standard" },
+        }),
+      );
+      emit(report, config);
+      if (!report.ok) throw new DoctorExit(6);
+    });
+
+  const verification = project.command("verification").description("Manage Verification Contract");
+
+  verification
+    .command("get")
+    .argument("<project-id>")
+    .action(async (projectId) => {
+      const { config, client } = context();
+      emit(
+        await unwrap(
+          client.GET("/projects/{projectId}/verification-contract", {
+            params: { path: { projectId } },
+          }),
+        ),
+        config,
+      );
+    });
+
+  verification
+    .command("history")
+    .argument("<project-id>")
+    .action(async (projectId) => {
+      const { config, client } = context();
+      emit(
+        await unwrap(
+          client.GET("/projects/{projectId}/verification-contract/revisions", {
+            params: { path: { projectId } },
+          }),
+        ),
+        config,
+      );
+    });
+
+  verification
+    .command("set")
+    .argument("<project-id>")
+    .requiredOption("--file <path>", "JSON array of verification commands; use - for stdin")
+    .requiredOption(
+      "--expected-revision <revision>",
+      "current revision or none for the first revision",
+      expectedRevision,
+    )
+    .action(async (projectId, options) => {
+      const commands = await readVerificationCommands(options.file, io);
+      const { config, client } = context();
+      emit(
+        await unwrap(
+          client.PUT("/projects/{projectId}/verification-contract", {
+            params: { path: { projectId } },
+            body: {
+              expectedRevision:
+                options.expectedRevision === "none" ? null : options.expectedRevision,
+              commands,
+            },
+          }),
+        ),
+        config,
+      );
+    });
+
+  verification
+    .command("disable")
+    .argument("<project-id>")
+    .requiredOption("--expected-revision <revision>", "current active revision", positiveInteger)
+    .action(async (projectId, options) => {
+      const { config, client } = context();
+      emit(
+        await unwrap(
+          client.POST("/projects/{projectId}/verification-contract/disable", {
+            params: { path: { projectId } },
+            body: { expectedRevision: options.expectedRevision },
           }),
         ),
         config,
@@ -1000,6 +1215,12 @@ function addProjectCommands(
     .addOption(new Option("--clear-schedule").conflicts("scheduleCron"))
     .option("--schedule-timezone <timezone>")
     .option("--max-concurrency <number>", "maximum concurrent Runs (1..16)", boundedConcurrency)
+    .addOption(
+      new Option("--ready-policy <policy>").choices([
+        "curator-decides",
+        "manual-approval-required",
+      ]),
+    )
     .action(async (projectId, options) => {
       const body = {
         ...compact({
@@ -1011,6 +1232,7 @@ function addProjectCommands(
           defaultBranch: options.defaultBranch,
           scheduleTimezone: options.scheduleTimezone,
           maxConcurrency: options.maxConcurrency,
+          readyPolicy: options.readyPolicy?.replaceAll("-", "_"),
         }),
         ...(options.clearCurationAgentProfile
           ? { curationAgentProfileId: null }
@@ -1706,6 +1928,34 @@ function positiveInteger(value: string): number {
   if (!Number.isSafeInteger(parsed) || parsed <= 0)
     throw new InvalidArgumentError("must be a positive integer");
   return parsed;
+}
+
+function expectedRevision(value: string): number | "none" {
+  return value === "none" ? "none" : positiveInteger(value);
+}
+
+async function readVerificationCommands(
+  path: string,
+  io: CliIo,
+): Promise<components["schemas"]["VerificationCommand"][]> {
+  try {
+    const text = path === "-" ? await io.readStdin() : await Bun.file(path).text();
+    const value: unknown = JSON.parse(text);
+    const commands = Array.isArray(value)
+      ? value
+      : isRecord(value) && Array.isArray(value.commands)
+        ? value.commands
+        : null;
+    if (commands === null) throw new Error("Expected a JSON array.");
+    return commands as components["schemas"]["VerificationCommand"][];
+  } catch {
+    throw new LocalCliError(
+      "file_read_error",
+      "Could not read a JSON verification command array.",
+      8,
+      { path },
+    );
+  }
 }
 
 function boundedConcurrency(value: string): number {

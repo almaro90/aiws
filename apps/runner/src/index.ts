@@ -1,17 +1,25 @@
 import { mkdir } from "node:fs/promises";
 import { AiwsRunnerClient, type Assignment } from "./client.ts";
-import { appendRunnerDiagnostic, CodexExecutionError, CodexRuntime } from "./codex.ts";
+import {
+  appendRunnerDiagnostic,
+  buildPrompt,
+  CodexExecutionError,
+  CodexRuntime,
+  PROMPT_BUILDER_VERSION,
+} from "./codex.ts";
 import { CredentialProxy } from "./credential-proxy.ts";
 import { materializeCurationContext, normalizeCurationOutput } from "./curation.ts";
 import { GitWorkspaceManager } from "./workspace.ts";
 import { CodexModelCatalog } from "./model-catalog.ts";
 import { RunnerControlServer } from "./control-server.ts";
+import { RunnerReadinessProbe } from "./readiness.ts";
+import { VerificationRuntime } from "./verification.ts";
 
 const config = {
   apiUrl: required("AIWS_API_URL"),
   runnerToken: required("AIWS_RUNNER_TOKEN"),
   workspacesDir: Bun.env.AIWS_WORKSPACES_DIR ?? "/workspaces",
-  image: Bun.env.AIWS_AGENT_IMAGE ?? "aiws-agent:0.6.1",
+  image: Bun.env.AIWS_AGENT_IMAGE ?? "aiws-agent:0.8.0",
   network: Bun.env.AIWS_DOCKER_NETWORK ?? "aiws_default",
   pollMs: integer(Bun.env.AIWS_RUNNER_POLL_MS ?? "15000", 1000),
   proxyPort: integer(Bun.env.AIWS_CREDENTIAL_PROXY_PORT ?? "4317", 1),
@@ -41,10 +49,23 @@ const modelCatalog = new CodexModelCatalog(
   config.proxyUrl,
   config.chatgptVolume,
 );
+const readiness = new RunnerReadinessProbe(
+  config.image,
+  config.network,
+  config.workspacesDir,
+  modelCatalog,
+);
+const verification = new VerificationRuntime(config.image, config.network, config.workspacesVolume);
 const control =
   config.controlSecret === undefined
     ? null
-    : new RunnerControlServer(config.controlPort, config.controlSecret, modelCatalog);
+    : new RunnerControlServer(
+        config.controlPort,
+        config.controlSecret,
+        modelCatalog,
+        true,
+        readiness,
+      );
 
 await reconcile();
 const reconciliation = setInterval(() => void reconcile(), config.reconcileMs);
@@ -79,19 +100,28 @@ async function execute(assignment: Assignment): Promise<void> {
   let latestLogs = "";
   let executionStage = assignment.run.executionStage;
   let summary = assignment.run.summary ?? "Automated implementation completed.";
+  let baseSha = assignment.run.baseSha;
+  let headSha = assignment.run.headSha;
   const checkpointRunId = assignment.run.resumeFromRunId ?? runId;
   try {
     if (assignment.run.status === "queued") {
       await client.advance(runId, { status: "preparing" });
     }
     if (executionStage === "publishing") {
-      if (assignment.run.resumeFromRunId === null || assignment.run.baseSha === null) {
+      if (
+        assignment.run.resumeFromRunId === null ||
+        assignment.run.baseSha === null ||
+        assignment.run.headSha === null
+      ) {
         throw new Error("Publishing Retry has no verifiable checkpoint; use a full Retry.");
       }
       prepared = await workspaces.resumePublishing(
         assignment.run.resumeFromRunId,
         assignment.run.baseSha,
+        assignment.run.headSha,
       );
+      baseSha = prepared.baseSha;
+      headSha = assignment.run.headSha;
       await client.advance(runId, {
         status: "running",
         baseSha: prepared.baseSha,
@@ -112,6 +142,7 @@ async function execute(assignment: Assignment): Promise<void> {
         assignment.run.branchName,
         assignment.delivery?.branchName ?? baseBranch,
       );
+      baseSha = prepared.baseSha;
       await materializeCurationContext(config.workspacesDir, assignment, (taskId, attachmentId) =>
         client.downloadAttachment(taskId, attachmentId),
       );
@@ -137,11 +168,26 @@ async function execute(assignment: Assignment): Promise<void> {
         if (result.curationOutput === undefined) throw new Error("Curation output is missing.");
         await assertActive(runId);
         await client.completeCuration(runId, normalizeCurationOutput(result.curationOutput));
+        await recordProvenance(assignment, baseSha, null, "not_applicable");
         await workspaces.cleanup(runId, assignment.project.repositoryPath);
         return;
       }
+      headSha = await workspaces.commit(prepared, `aiws: ${assignment.task.title}`);
+      await client.advance(runId, { status: "verifying", headSha, summary });
+      const results = await verification.execute(
+        assignment,
+        async () => (await client.run(runId)).status === "cancelled",
+      );
+      const verificationState = await client.verificationResults(runId, results);
+      if (verificationState.status === "failed") {
+        await recordProvenance(assignment, baseSha, headSha, "not_attempted");
+        return;
+      }
+      if (verificationState.status === "cancelled") {
+        await recordProvenance(assignment, baseSha, headSha, "not_attempted");
+        return;
+      }
       executionStage = "publishing";
-      await client.advance(runId, { status: "publishing", summary });
     }
     if (assignment.run.branchName === null) throw new Error("Implementation branch is missing.");
     await assertActive(runId);
@@ -152,11 +198,12 @@ async function execute(assignment: Assignment): Promise<void> {
         summary,
       });
     }
-    const headSha = await workspaces.commitAndPush(
+    if (headSha === null) throw new Error("Publishing checkpoint has no head SHA.");
+    await workspaces.push(
       prepared,
       assignment.run.branchName,
       gitAuthentication(publishingCredentials),
-      `aiws: ${assignment.task.title}`,
+      headSha,
     );
     await assertActive(runId);
     const pullRequest = await client.pullRequest(runId, {
@@ -175,6 +222,12 @@ async function execute(assignment: Assignment): Promise<void> {
       headSha,
       summary,
     });
+    await recordProvenance(
+      assignment,
+      baseSha,
+      headSha,
+      assignment.run.verificationWaiverRunId === null ? "published" : "waived",
+    );
     await workspaces.cleanup(checkpointRunId, assignment.project.repositoryPath);
   } catch (error) {
     const errorMessage = safeError(error);
@@ -188,10 +241,63 @@ async function execute(assignment: Assignment): Promise<void> {
         : "runner_failed";
       await client.fail(runId, { errorCode, errorMessage }).catch(() => undefined);
     }
+    const terminal = await client.run(runId).catch(() => null);
+    if (terminal !== null && ["failed", "cancelled"].includes(terminal.status)) {
+      await recordProvenance(
+        assignment,
+        terminal.baseSha ?? baseSha,
+        terminal.headSha ?? headSha,
+        executionStage === "publishing" ? "failed" : "not_attempted",
+      );
+    }
     if (executionStage === "agent") {
       await workspaces.cleanup(runId, assignment.project.repositoryPath).catch(() => undefined);
     }
   }
+}
+
+async function recordProvenance(
+  assignment: Assignment,
+  baseSha: string | null,
+  headSha: string | null,
+  publicationOutcome: "not_applicable" | "not_attempted" | "published" | "failed" | "waived",
+): Promise<void> {
+  const identity = await verification.identity();
+  const currentSpecs = assignment.task.specRevisions.filter(
+    (spec) => spec.cycleId === assignment.task.currentCycleId,
+  );
+  const specRevision =
+    currentSpecs.length === 0 ? null : Math.max(...currentSpecs.map((spec) => spec.revision));
+  const hash = new Bun.CryptoHasher("sha256").update(buildPrompt(assignment)).digest("hex");
+  await client
+    .recordProvenance(assignment.run.id, {
+      aiwsVersion: "0.8.0",
+      codexCliVersion: identity.codexCliVersion,
+      model: assignment.agentProfile.model,
+      reasoningEffort: assignment.agentProfile.reasoningEffort,
+      agentImage: config.image,
+      agentImageDigest: identity.imageDigest,
+      toolchainIdentity: [
+        "git",
+        "codex",
+        ...(assignment.verificationContract?.commands.map((item) => item.executable) ?? []),
+      ],
+      resourceLimits: { cpus: 2, memory: "4g", pids: 512 },
+      networkProfile: config.network,
+      baseSha,
+      headSha,
+      branchName: assignment.run.branchName,
+      promptBuilderVersion: PROMPT_BUILDER_VERSION,
+      promptHash: hash,
+      specRevision,
+      attachments: assignment.task.attachments.map((attachment) => ({
+        id: attachment.id,
+        sha256: attachment.sha256,
+      })),
+      verificationContractRevision: assignment.run.verificationContractRevision,
+      publicationOutcome,
+    })
+    .catch(() => undefined);
 }
 
 function gitAuthentication(credentials: Awaited<ReturnType<AiwsRunnerClient["credentials"]>>) {

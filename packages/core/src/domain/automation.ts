@@ -9,6 +9,7 @@ import type {
 } from "./ids.ts";
 import { assertMaximum, assertNonBlank, throwIfIssues } from "./validation.ts";
 import type { ValidationIssue } from "../errors/domain-errors.ts";
+import type { ReadyPolicy } from "./project.ts";
 
 export type ConnectionStatus = "active" | "reauthorization_required" | "revoked";
 
@@ -110,6 +111,7 @@ export const RUN_STATUSES = [
   "queued",
   "preparing",
   "running",
+  "verifying",
   "publishing",
   "succeeded",
   "failed",
@@ -117,7 +119,7 @@ export const RUN_STATUSES = [
 ] as const;
 export type RunStatus = (typeof RUN_STATUSES)[number];
 export type RunKind = "curation" | "implementation";
-export type RunOutcome = "ready" | "blocked" | null;
+export type RunOutcome = "ready" | "blocked" | "approval_required" | null;
 export type RunExecutionStage = "agent" | "publishing";
 export type RunRetryMode = "auto" | "full" | "publish_only";
 
@@ -148,6 +150,10 @@ export interface Run {
   readonly finishedAt: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
+  readonly readyPolicy: ReadyPolicy | null;
+  readonly verificationContractRevision: number | null;
+  readonly verificationWaiverRunId: RunId | null;
+  readonly verificationWaiverReason: string | null;
 }
 
 export function createRun(
@@ -165,6 +171,8 @@ export function createRun(
     | "branchName"
     | "executionStage"
     | "resumeFromRunId"
+    | "readyPolicy"
+    | "verificationContractRevision"
   > & { readonly now: string },
 ): Run {
   const issues: ValidationIssue[] = [];
@@ -174,8 +182,28 @@ export function createRun(
     } else {
       assertNonBlank(input.branchName, "branchName", 255, issues);
     }
+    if (input.readyPolicy !== null) {
+      issues.push({ path: "readyPolicy", message: "Implementation Runs do not use Ready policy." });
+    }
+    if (
+      input.verificationContractRevision !== null &&
+      (!Number.isInteger(input.verificationContractRevision) ||
+        input.verificationContractRevision < 1)
+    ) {
+      issues.push({
+        path: "verificationContractRevision",
+        message: "Verification Contract revision must be a positive integer.",
+      });
+    }
   } else if (input.branchName !== null) {
     issues.push({ path: "branchName", message: "Curation Runs do not use a branch." });
+  } else if (input.readyPolicy === null) {
+    issues.push({ path: "readyPolicy", message: "Curation Runs require a Ready policy snapshot." });
+  } else if (input.verificationContractRevision !== null) {
+    issues.push({
+      path: "verificationContractRevision",
+      message: "Curation Runs do not use a Verification Contract.",
+    });
   }
   if (input.attempt < 1 || !Number.isSafeInteger(input.attempt))
     issues.push({ path: "attempt", message: "Must be a positive integer." });
@@ -194,6 +222,8 @@ export function createRun(
     heartbeatAt: null,
     startedAt: null,
     finishedAt: null,
+    verificationWaiverRunId: null,
+    verificationWaiverReason: null,
     createdAt: input.now,
     updatedAt: input.now,
   };
@@ -202,7 +232,8 @@ export function createRun(
 const RUN_TRANSITIONS: Readonly<Record<RunStatus, readonly RunStatus[]>> = {
   queued: ["preparing", "failed", "cancelled"],
   preparing: ["running", "failed", "cancelled"],
-  running: ["publishing", "failed", "cancelled"],
+  running: ["verifying", "publishing", "failed", "cancelled"],
+  verifying: ["publishing", "failed", "cancelled"],
   publishing: ["succeeded", "failed", "cancelled"],
   succeeded: [],
   failed: [],
@@ -227,7 +258,13 @@ export function transitionRun(
     >
   > = {},
 ): Run {
-  if (run.kind === "curation" && (status === "publishing" || run.status === "publishing")) {
+  if (
+    run.kind === "curation" &&
+    (status === "verifying" ||
+      run.status === "verifying" ||
+      status === "publishing" ||
+      run.status === "publishing")
+  ) {
     throwIfIssues([{ path: "status", message: "Curation Runs do not publish." }]);
   }
   if (run.kind === "curation" && run.status === "running" && status === "succeeded") {

@@ -9,6 +9,7 @@ import {
   ConnectionUseCases,
   RunUseCases,
   MessageUseCases,
+  VerificationContractUseCases,
 } from "@aiws/core";
 import { FileAttachmentBlobStore, openDatabase, SqliteUnitOfWork } from "@aiws/sqlite";
 import { mkdir } from "node:fs/promises";
@@ -25,8 +26,12 @@ import {
   parseConnectionEncryptionKey,
 } from "../integrations/azure-devops.ts";
 import { ManagedGitProviderRegistry } from "../integrations/managed-git-provider.ts";
-import { RunnerModelCatalogClient } from "../integrations/runner-model-catalog.ts";
+import { RunnerControlClient } from "../integrations/runner-model-catalog.ts";
+import { ProjectReadinessService } from "../readiness.ts";
 import { RunnerActivityMonitor } from "../runner-activity.ts";
+import { AttentionService } from "../attention.ts";
+import { DeliveryProjectionService } from "../delivery-projection.ts";
+import { ProductMetricsService } from "../metrics.ts";
 import {
   NotificationDispatcher,
   NotificationSettingsService,
@@ -83,6 +88,7 @@ export async function composeServer(config: Config) {
         maximumAttachmentBytes: config.maxAttachmentBytes,
       },
     );
+    const verificationContracts = new VerificationContractUseCases(unitOfWork, { clock, ids });
     const github =
       config.githubAppId === undefined ||
       config.githubAppSlug === undefined ||
@@ -131,11 +137,28 @@ export async function composeServer(config: Config) {
     const repositoryValidator = await RepositoryValidator.create(credentials.allowedRepoRoots);
     const openApiDocument = await readOpenApiSnapshot();
     const webAssetsDirectory = await findWebAssets();
-    const modelCatalog =
+    const runnerControl =
       config.runnerControlUrl === undefined || config.runnerControlSecret === undefined
         ? undefined
-        : new RunnerModelCatalogClient(config.runnerControlUrl, config.runnerControlSecret);
+        : new RunnerControlClient(config.runnerControlUrl, config.runnerControlSecret);
     const runnerActivity = new RunnerActivityMonitor();
+    const attention = new AttentionService(database);
+    const deliveryProjection = new DeliveryProjectionService(
+      database,
+      connections,
+      managedGitProviders,
+      (work) => unitOfWork.coordinate(work),
+    );
+    const metrics = new ProductMetricsService(database);
+    const projectReadiness = new ProjectReadinessService({
+      projects,
+      connections,
+      agentProfiles,
+      managedGitProviders,
+      runnerActivity,
+      ...(runnerControl === undefined ? {} : { runnerControl }),
+      clock,
+    });
     const ntfyPublisher = new NtfyPublisher();
     const notificationSettings = new NotificationSettingsService(
       database,
@@ -160,6 +183,7 @@ export async function composeServer(config: Config) {
       agentProfiles,
       runs,
       messages,
+      verificationContracts,
       repositoryValidator,
       openApiDocument,
       healthCheck: () => {
@@ -176,8 +200,12 @@ export async function composeServer(config: Config) {
       ...(github === undefined ? {} : { github }),
       ...(azureAuthorization === undefined ? {} : { azureAuthorization }),
       managedGitProviders,
-      ...(modelCatalog === undefined ? {} : { modelCatalog }),
+      ...(runnerControl === undefined ? {} : { modelCatalog: runnerControl }),
+      projectReadiness,
       runnerActivity,
+      attention,
+      deliveryProjection,
+      metrics,
       notificationSettings,
       repositoriesDir: config.repositoriesDir,
       runLogsDirectory: join(config.dataDir, "run-logs"),

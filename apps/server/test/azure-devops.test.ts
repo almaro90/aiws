@@ -192,7 +192,14 @@ describe("Azure DevOps managed provider", () => {
         return Response.json({
           pullRequestId: 12,
           status: "active",
+          isDraft: true,
+          creationDate: "2026-07-26T10:00:00.000Z",
           _links: { web: { href: "https://dev.azure.com/acme/App/_git/Repo/pullrequest/12" } },
+        });
+      }
+      if (url.pathname.endsWith("/statuses")) {
+        return Response.json({
+          value: [{ state: "succeeded" }, { state: "failed" }, { state: "pending" }],
         });
       }
       if (url.pathname.endsWith("/pullrequests")) return Response.json({ value: [] });
@@ -283,6 +290,22 @@ describe("Azure DevOps managed provider", () => {
     expect(JSON.parse(String(update?.init?.body))).toMatchObject({
       title: "Updated",
       isDraft: true,
+    });
+    expect(
+      await provider.observeDelivery(
+        connection,
+        "App/Repo",
+        "550e8400-e29b-41d4-a716-446655440000",
+        prUrl,
+        "a".repeat(40),
+      ),
+    ).toEqual({
+      prState: "draft",
+      checksState: "failed",
+      checksPassed: 1,
+      checksFailed: 1,
+      checksPending: 1,
+      externalUpdatedAt: "2026-07-26T10:00:00.000Z",
     });
     database.close();
   });

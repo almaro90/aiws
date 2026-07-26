@@ -154,6 +154,14 @@ export class TaskUseCases {
           branchName: `aiws/${task.id}/${deliveryId}`,
           baseBranch,
           prUrl: null,
+          prState: null,
+          checksState: null,
+          checksPassed: 0,
+          checksFailed: 0,
+          checksPending: 0,
+          externalUpdatedAt: null,
+          lastSynchronizedAt: null,
+          synchronizationError: null,
           createdAt: now,
           updatedAt: now,
         };
@@ -226,6 +234,14 @@ export class TaskUseCases {
             branchName: null,
             baseBranch: null,
             prUrl: mutation.task.prUrl,
+            prState: null,
+            checksState: null,
+            checksPassed: 0,
+            checksFailed: 0,
+            checksPending: 0,
+            externalUpdatedAt: null,
+            lastSynchronizedAt: null,
+            synchronizationError: null,
             createdAt: now,
             updatedAt: now,
           });
@@ -380,15 +396,17 @@ export class TaskUseCases {
   }
 
   private async aggregate(stores: Stores, task: Task): Promise<TaskAggregate> {
-    const [project, questions, attachments, currentCycle, currentDelivery] = await Promise.all([
-      stores.projects.getById(task.projectId),
-      stores.questions.listByTaskId(task.id),
-      stores.attachments.listByTaskId(task.id),
-      stores.cycles.getById(task.currentCycleId),
-      task.currentDeliveryId === null
-        ? Promise.resolve(null)
-        : stores.deliveries.getById(task.currentDeliveryId),
-    ]);
+    const [project, questions, attachments, specRevisions, currentCycle, currentDelivery] =
+      await Promise.all([
+        stores.projects.getById(task.projectId),
+        stores.questions.listByTaskId(task.id),
+        stores.attachments.listByTaskId(task.id),
+        stores.specRevisions.listByTaskId(task.id),
+        stores.cycles.getById(task.currentCycleId),
+        task.currentDeliveryId === null
+          ? Promise.resolve(null)
+          : stores.deliveries.getById(task.currentDeliveryId),
+      ]);
     if (project === null) throw new NotFoundError("Project", task.projectId);
     if (currentCycle === null) throw new NotFoundError("Task", task.id);
     return {
@@ -396,6 +414,7 @@ export class TaskUseCases {
       project,
       questions,
       attachments: attachments.map(({ storageKey: _storageKey, ...attachment }) => attachment),
+      specRevisions,
       currentCycle,
       currentDelivery,
     };

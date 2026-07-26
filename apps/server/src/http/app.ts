@@ -25,6 +25,7 @@ import {
   type MessageUseCases,
   type AgentModelCatalog,
   type AgentAuthMode,
+  type VerificationContractUseCases,
 } from "@aiws/core";
 import {
   attachmentIdSchema,
@@ -36,6 +37,7 @@ import {
   listTasksSchema,
   loginSchema,
   projectIdSchema,
+  projectReadinessRequestSchema,
   questionDefinitionSchema,
   questionIdSchema,
   reasonSchema,
@@ -64,6 +66,12 @@ import {
   updateNotificationSettingsSchema,
   azureAuthorizationIdSchema,
   completeAzureAuthorizationSchema,
+  replaceVerificationContractSchema,
+  disableVerificationContractSchema,
+  recordVerificationResultsSchema,
+  waiveVerificationSchema,
+  recordRunProvenanceSchema,
+  deliveryIdSchema,
 } from "@aiws/contracts";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { Hono } from "hono";
@@ -76,8 +84,15 @@ import { domainStatus, HttpError } from "./errors.ts";
 import type { z } from "zod";
 import { parseSingleFileMultipart } from "./multipart.ts";
 import type { GitHubAppGateway } from "../integrations/github-app.ts";
-import type { RunnerModelCatalogClient } from "../integrations/runner-model-catalog.ts";
+import type { RunnerControlClient } from "../integrations/runner-model-catalog.ts";
+import type { ProjectReadinessService } from "../readiness.ts";
 import type { RunnerActivityMonitor } from "../runner-activity.ts";
+import type { AttentionService } from "../attention.ts";
+import {
+  DeliverySynchronizationError,
+  type DeliveryProjectionService,
+} from "../delivery-projection.ts";
+import type { ProductMetricsService } from "../metrics.ts";
 import { createOauthState, verifyOauthState } from "../integrations/github-app.ts";
 import { join } from "node:path";
 import { mkdir, rename, rm } from "node:fs/promises";
@@ -101,6 +116,7 @@ export interface AppOptions {
   readonly agentProfiles: AgentProfileUseCases;
   readonly runs: RunUseCases;
   readonly messages: MessageUseCases;
+  readonly verificationContracts: VerificationContractUseCases;
   readonly repositoryValidator: RepositoryValidator;
   readonly openApiDocument: Readonly<Record<string, unknown>>;
   readonly healthCheck: () => boolean | Promise<boolean>;
@@ -114,8 +130,12 @@ export interface AppOptions {
   readonly github?: GitHubAppGateway;
   readonly azureAuthorization?: AzureDevOpsAuthorizationService;
   readonly managedGitProviders?: ManagedGitProviderRegistry;
-  readonly modelCatalog?: Pick<RunnerModelCatalogClient, "list">;
+  readonly modelCatalog?: Pick<RunnerControlClient, "list">;
+  readonly projectReadiness?: Pick<ProjectReadinessService, "check">;
   readonly runnerActivity?: Pick<RunnerActivityMonitor, "seen" | "status">;
+  readonly attention?: Pick<AttentionService, "list">;
+  readonly deliveryProjection?: Pick<DeliveryProjectionService, "get" | "refresh">;
+  readonly metrics?: Pick<ProductMetricsService, "project">;
   readonly repositoriesDir: string;
   readonly runLogsDirectory?: string;
   readonly sessionTtlSeconds: number;
@@ -285,11 +305,11 @@ export function createApp(options: AppOptions): Hono<{ Variables: Variables }> {
 
   app.get("/api/v1/health", async (context) => {
     try {
-      if (await options.healthCheck()) return context.json({ status: "ok", version: "0.6.1" });
+      if (await options.healthCheck()) return context.json({ status: "ok", version: "0.8.0" });
     } catch {
       // Health responses intentionally do not disclose storage failures.
     }
-    return context.json({ status: "unhealthy", version: "0.6.1" }, 503);
+    return context.json({ status: "unhealthy", version: "0.8.0" }, 503);
   });
   app.get("/api/v1/system/runner", (context) =>
     context.json(
@@ -300,6 +320,83 @@ export function createApp(options: AppOptions): Hono<{ Variables: Variables }> {
       },
     ),
   );
+  app.get("/api/v1/attention", (context) => {
+    const limitValue = context.req.query("limit") ?? "50";
+    const limit = Number(limitValue);
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+      throw new HttpError(422, "validation_error", "Attention limit is invalid.");
+    }
+    try {
+      const cursor = context.req.query("cursor");
+      return context.json(
+        options.attention?.list({
+          limit,
+          ...(cursor === undefined ? {} : { cursor }),
+          runner: options.runnerActivity?.status() ?? {
+            status: "unknown",
+            lastSeenAt: null,
+            offlineAfterSeconds: 45,
+          },
+        }) ?? { items: [], nextCursor: null },
+      );
+    } catch {
+      throw new HttpError(422, "validation_error", "Attention cursor is invalid.");
+    }
+  });
+  app.get("/api/v1/deliveries/:deliveryId/projection", async (context) => {
+    const deliveryId = parse(deliveryIdSchema, context.req.param("deliveryId"));
+    const delivery = await options.deliveryProjection?.get(deliveryId);
+    if (delivery === null || delivery === undefined)
+      throw new HttpError(404, "not_found", "Delivery was not found.");
+    return context.json(delivery);
+  });
+  app.get("/api/v1/projects/:projectId/metrics", (context) => {
+    const projectId = parse(projectIdSchema, context.req.param("projectId"));
+    const from = context.req.query("from");
+    const to = context.req.query("to");
+    const utc = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
+    if (from === undefined || to === undefined || !utc.test(from) || !utc.test(to))
+      throw new HttpError(
+        422,
+        "validation_error",
+        "Metrics require from/to UTC timestamps with milliseconds.",
+      );
+    try {
+      const result = options.metrics?.project(projectId, from, to);
+      if (result === undefined)
+        throw new HttpError(503, "service_unavailable", "Product metrics are unavailable.");
+      return context.json(result);
+    } catch (error) {
+      if (error instanceof HttpError) throw error;
+      if (error instanceof Error && error.message === "Project was not found.")
+        throw new HttpError(404, "not_found", error.message);
+      throw new HttpError(
+        422,
+        "validation_error",
+        error instanceof Error ? error.message : "Metrics range is invalid.",
+      );
+    }
+  });
+  app.post("/api/v1/deliveries/:deliveryId/projection/refresh", async (context) => {
+    const deliveryId = parse(deliveryIdSchema, context.req.param("deliveryId"));
+    try {
+      const delivery = await options.deliveryProjection?.refresh(deliveryId);
+      if (delivery === undefined)
+        throw new HttpError(503, "service_unavailable", "Delivery synchronization is unavailable.");
+      return context.json(delivery);
+    } catch (error) {
+      if (error instanceof HttpError) throw error;
+      if (error instanceof DeliverySynchronizationError)
+        throw new HttpError(502, "delivery_synchronization_failed", error.message);
+      if (error instanceof Error && error.message === "Delivery was not found.")
+        throw new HttpError(404, "not_found", error.message);
+      throw new HttpError(
+        409,
+        "delivery_not_synchronizable",
+        error instanceof Error ? error.message : "Delivery cannot be synchronized.",
+      );
+    }
+  });
 
   app.post("/api/v1/auth/login", async (context) => {
     const limited = rateLimiter.consume(clientIp(context.req.raw, options.trustProxy));
@@ -416,6 +513,37 @@ export function createApp(options: AppOptions): Hono<{ Variables: Variables }> {
     return context.json(await managedBranches(await options.projects.get(id)));
   });
 
+  app.post("/api/v1/projects/:projectId/readiness-check", async (context) => {
+    const id = parse(projectIdSchema, context.req.param("projectId")) as ProjectId;
+    const input = parse(projectReadinessRequestSchema, await parseJson(context.req.raw));
+    if (options.projectReadiness === undefined) {
+      throw new HttpError(503, "readiness_unavailable", "Project Readiness is unavailable.");
+    }
+    return context.json(await options.projectReadiness.check(id, input.depth));
+  });
+
+  app.get("/api/v1/projects/:projectId/verification-contract", async (context) => {
+    const id = parse(projectIdSchema, context.req.param("projectId")) as ProjectId;
+    return context.json(await options.verificationContracts.get(id));
+  });
+
+  app.get("/api/v1/projects/:projectId/verification-contract/revisions", async (context) => {
+    const id = parse(projectIdSchema, context.req.param("projectId")) as ProjectId;
+    return context.json(await options.verificationContracts.history(id));
+  });
+
+  app.put("/api/v1/projects/:projectId/verification-contract", async (context) => {
+    const projectId = parse(projectIdSchema, context.req.param("projectId")) as ProjectId;
+    const input = parse(replaceVerificationContractSchema, await parseJson(context.req.raw));
+    return context.json(await options.verificationContracts.replace({ projectId, ...input }));
+  });
+
+  app.post("/api/v1/projects/:projectId/verification-contract/disable", async (context) => {
+    const projectId = parse(projectIdSchema, context.req.param("projectId")) as ProjectId;
+    const input = parse(disableVerificationContractSchema, await parseJson(context.req.raw));
+    return context.json(await options.verificationContracts.disable({ projectId, ...input }));
+  });
+
   app.patch("/api/v1/projects/:projectId", async (context) => {
     const id = parse(projectIdSchema, context.req.param("projectId")) as ProjectId;
     const input = parse(updateProjectSchema, await parseJson(context.req.raw));
@@ -449,6 +577,7 @@ export function createApp(options: AppOptions): Hono<{ Variables: Variables }> {
       ...(input.scheduleCron === undefined ? {} : { scheduleCron: input.scheduleCron }),
       ...(input.scheduleTimezone === undefined ? {} : { scheduleTimezone: input.scheduleTimezone }),
       ...(input.maxConcurrency === undefined ? {} : { maxConcurrency: input.maxConcurrency }),
+      ...(input.readyPolicy === undefined ? {} : { readyPolicy: input.readyPolicy }),
     };
     return context.json(await options.projects.update(id, changes));
   });
@@ -746,6 +875,7 @@ export function createApp(options: AppOptions): Hono<{ Variables: Variables }> {
         ...(input.baseSha === undefined ? {} : { baseSha: input.baseSha }),
         ...(input.headSha === undefined ? {} : { headSha: input.headSha }),
         ...(input.logsStorageKey === undefined ? {} : { logsStorageKey: input.logsStorageKey }),
+        ...(input.summary === undefined ? {} : { summary: input.summary }),
       }),
     );
   });
@@ -753,6 +883,28 @@ export function createApp(options: AppOptions): Hono<{ Variables: Variables }> {
     requireSystem(context.get("authentication"));
     const runId = parse(runIdSchema, context.req.param("runId")) as RunId;
     return context.json(await options.runs.heartbeat(runId));
+  });
+  app.get("/api/v1/runs/:runId/verification", async (context) => {
+    const runId = parse(runIdSchema, context.req.param("runId")) as RunId;
+    return context.json({ items: await options.runs.verificationResults(runId) });
+  });
+  app.post("/api/v1/runs/:runId/verification-results", async (context) => {
+    requireSystem(context.get("authentication"));
+    const runId = parse(runIdSchema, context.req.param("runId")) as RunId;
+    const input = parse(recordVerificationResultsSchema, await parseJson(context.req.raw));
+    return context.json(await options.runs.recordVerification(runId, input.results));
+  });
+  app.get("/api/v1/runs/:runId/provenance", async (context) => {
+    const runId = parse(runIdSchema, context.req.param("runId")) as RunId;
+    const provenance = await options.runs.provenance(runId);
+    if (provenance === null) throw new HttpError(404, "not_found", "Run provenance was not found.");
+    return context.json(provenance);
+  });
+  app.put("/api/v1/runs/:runId/provenance", async (context) => {
+    requireSystem(context.get("authentication"));
+    const runId = parse(runIdSchema, context.req.param("runId")) as RunId;
+    const input = parse(recordRunProvenanceSchema, await parseJson(context.req.raw));
+    return context.json(await options.runs.recordProvenance(runId, input), 201);
   });
   app.post("/api/v1/runs/:runId/complete", async (context) => {
     requireSystem(context.get("authentication"));
@@ -862,6 +1014,18 @@ export function createApp(options: AppOptions): Hono<{ Variables: Variables }> {
     const input = parse(retryRunSchema, await parseOptionalJson(context.req.raw));
     return context.json(
       await options.runs.retry(runId, parseIfMatch(context.req.header("If-Match")), input.mode),
+      201,
+    );
+  });
+  app.post("/api/v1/runs/:runId/waive-verification", async (context) => {
+    const runId = parse(runIdSchema, context.req.param("runId")) as RunId;
+    const input = parse(waiveVerificationSchema, await parseJson(context.req.raw));
+    return context.json(
+      await options.runs.waiveVerification(
+        runId,
+        parseIfMatch(context.req.header("If-Match")),
+        input.reason,
+      ),
       201,
     );
   });
@@ -1323,6 +1487,8 @@ function taskResponse(aggregate: TaskAggregate) {
     updatedAt: aggregate.updatedAt,
     archivedAt: aggregate.archivedAt,
     automationPaused: aggregate.automationPaused,
+    readyApprovalPending: aggregate.readyApprovalPending,
+    specRevisions: aggregate.specRevisions,
     currentCycle: aggregate.currentCycle,
     currentDelivery: aggregate.currentDelivery,
   };

@@ -20,9 +20,9 @@ Para una sesión ChatGPT:
 
 ```bash
 docker run --rm --user root -v aiws-codex-auth:/codex-home \
-  ghcr.io/almaro90/aiws-agent:0.6.1 chown -R 1000:1000 /codex-home
+  ghcr.io/almaro90/aiws-agent:0.8.0 chown -R 1000:1000 /codex-home
 docker run --rm -it -v aiws-codex-auth:/codex-home -e CODEX_HOME=/codex-home \
-  ghcr.io/almaro90/aiws-agent:0.6.1 codex login --device-auth
+  ghcr.io/almaro90/aiws-agent:0.8.0 codex login --device-auth
 ```
 
 En Web, abre **Automation**, consulta el catálogo vivo y crea el Agent Profile con modelo y
@@ -59,10 +59,10 @@ Ejemplos:
 
 ```bash
 hermes skills install \
-  https://raw.githubusercontent.com/almaro90/aiws/v0.6.1/skills/aiws-workflow/SKILL.md
+  https://raw.githubusercontent.com/almaro90/aiws/v0.8.0/skills/aiws-workflow/SKILL.md
 
-git clone --depth 1 --branch v0.6.1 https://github.com/almaro90/aiws.git /tmp/aiws-v0.6.1
-openclaw skills install /tmp/aiws-v0.6.1/skills/aiws-workflow \
+git clone --depth 1 --branch v0.8.0 https://github.com/almaro90/aiws.git /tmp/aiws-v0.8.0
+openclaw skills install /tmp/aiws-v0.8.0/skills/aiws-workflow \
   --as aiws-workflow --global
 ```
 

@@ -8,6 +8,9 @@ export type GitProvider = (typeof GIT_PROVIDERS)[number];
 export const ACCOUNT_SCOPES = ["personal", "work"] as const;
 export type AccountScope = (typeof ACCOUNT_SCOPES)[number];
 
+export const READY_POLICIES = ["curator_decides", "manual_approval_required"] as const;
+export type ReadyPolicy = (typeof READY_POLICIES)[number];
+
 export function isValidGitBranchName(value: string): boolean {
   if (value.length === 0 || value.length > 255 || value === "@" || value.startsWith("-"))
     return false;
@@ -47,6 +50,7 @@ export interface Project {
   readonly scheduleCron: string | null;
   readonly scheduleTimezone: string;
   readonly maxConcurrency: number;
+  readonly readyPolicy: ReadyPolicy;
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly archivedAt: string | null;
@@ -71,6 +75,7 @@ export interface NewProject {
   readonly scheduleCron?: string | null;
   readonly scheduleTimezone?: string;
   readonly maxConcurrency?: number;
+  readonly readyPolicy?: ReadyPolicy;
   readonly now: string;
 }
 
@@ -89,6 +94,7 @@ export type ProjectChanges = Partial<
     | "scheduleCron"
     | "scheduleTimezone"
     | "maxConcurrency"
+    | "readyPolicy"
   >
 >;
 
@@ -109,6 +115,7 @@ export function createProject(input: NewProject): Project {
     scheduleCron: input.scheduleCron ?? null,
     scheduleTimezone: input.scheduleTimezone ?? "UTC",
     maxConcurrency: input.maxConcurrency ?? 1,
+    readyPolicy: input.readyPolicy ?? "curator_decides",
   };
   validateProjectFields(normalized);
   return {
@@ -136,6 +143,7 @@ export function updateProject(project: Project, changes: ProjectChanges, now: st
     "scheduleCron",
     "scheduleTimezone",
     "maxConcurrency",
+    "readyPolicy",
   ] as const;
   const unknownField = keys.find((field) => !(allowedFields as readonly string[]).includes(field));
   if (unknownField !== undefined) {
@@ -174,6 +182,7 @@ export function updateProject(project: Project, changes: ProjectChanges, now: st
       ? {}
       : { scheduleTimezone: changes.scheduleTimezone }),
     ...(changes.maxConcurrency === undefined ? {} : { maxConcurrency: changes.maxConcurrency }),
+    ...(changes.readyPolicy === undefined ? {} : { readyPolicy: changes.readyPolicy }),
     updatedAt: now,
   };
   validateProjectFields(updated);
@@ -218,6 +227,7 @@ function validateProjectFields(
     | "scheduleCron"
     | "scheduleTimezone"
     | "maxConcurrency"
+    | "readyPolicy"
   >,
 ): void {
   const issues: ValidationIssue[] = [];
@@ -231,6 +241,9 @@ function validateProjectFields(
   }
   if (!(ACCOUNT_SCOPES as readonly string[]).includes(project.accountScope)) {
     issues.push({ path: "accountScope", message: "Unsupported account scope." });
+  }
+  if (!(READY_POLICIES as readonly string[]).includes(project.readyPolicy)) {
+    issues.push({ path: "readyPolicy", message: "Unsupported Ready policy." });
   }
   if (project.repositoryMode === "managed") {
     for (const [path, value] of [

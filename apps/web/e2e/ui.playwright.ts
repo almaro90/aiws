@@ -19,6 +19,7 @@ const project = {
   scheduleCron: null,
   scheduleTimezone: "UTC",
   maxConcurrency: 1,
+  readyPolicy: "curator_decides",
   createdAt: "2026-07-21T10:00:00.000Z",
   updatedAt: "2026-07-21T12:00:00.000Z",
   archivedAt: null,
@@ -95,6 +96,7 @@ const activeTask = {
   automationPaused: false,
   currentCycleId: cycleId,
   currentDeliveryId: null,
+  readyApprovalPending: false,
   currentCycle: {
     id: cycleId,
     taskId,
@@ -106,6 +108,24 @@ const activeTask = {
   currentDelivery: null,
   project,
   questions,
+  specRevisions: [
+    {
+      id: "spc_01K0ABCDEFGHJKMNPQRSTVWXY0",
+      taskId,
+      cycleId,
+      revision: 1,
+      content: "# Summary\nExportar nombre y correo.",
+      createdAt: "2026-07-21T10:01:00.000Z",
+    },
+    {
+      id: "spc_01K0ABCDEFGHJKMNPQRSTVWXYZ",
+      taskId,
+      cycleId,
+      revision: 2,
+      content: "# Summary\nConservar el teléfono en el CSV.",
+      createdAt: "2026-07-21T10:02:00.000Z",
+    },
+  ],
   attachments: [
     {
       id: "att_01K0ABCDEFGHJKMNPQRSTVWXYZ",
@@ -172,12 +192,16 @@ const runWithLogs = {
   finishedAt: null,
   createdAt: "2026-07-21T10:04:00.000Z",
   updatedAt: "2026-07-21T10:05:00.000Z",
+  readyPolicy: null,
+  verificationContractRevision: null,
 };
 
 const runWithoutLogs = {
   ...runWithLogs,
   id: "run_01K0ABCDEFGHJKMNPQRSTVWXY0",
   kind: "curation",
+  readyPolicy: "curator_decides",
+  verificationContractRevision: null,
   attempt: 1,
   status: "failed",
   branchName: null,
@@ -207,12 +231,16 @@ async function mockApi(
     projectTasksMore?: boolean;
     extremeStrings?: boolean;
     uploadPartial?: boolean;
+    projectReadiness?: boolean;
+    readyApprovalPending?: boolean;
     taskStatus?: "draft" | "curating" | "blocked" | "ready" | "implementing" | "done";
     cycles?: boolean;
   } = {},
 ) {
   let questionAnswered = false;
   let attachmentUploadAttempt = 0;
+  let verificationRevision = 0;
+  let verificationCommands: unknown[] = [];
   let notificationSettings = {
     enabled: false,
     baseUrl: "https://ntfy.sh",
@@ -241,6 +269,7 @@ async function mockApi(
         : {}),
       ...(options.cycles ? { currentCycle: { ...activeTask.currentCycle, number: 2 } } : {}),
       automationPaused: options.paused ?? false,
+      readyApprovalPending: options.readyApprovalPending ?? false,
     };
     const statusTask = options.runControls
       ? {
@@ -279,8 +308,8 @@ async function mockApi(
             ];
     if (path === "/health") {
       return options.healthOffline
-        ? route.fulfill({ status: 503, json: { status: "unhealthy", version: "0.6.1" } })
-        : route.fulfill({ json: { status: "ok", version: "0.6.1" } });
+        ? route.fulfill({ status: 503, json: { status: "unhealthy", version: "0.8.0" } })
+        : route.fulfill({ json: { status: "ok", version: "0.8.0" } });
     }
     if (path === "/system/runner") {
       return route.fulfill({
@@ -390,7 +419,89 @@ async function mockApi(
         },
       });
     if (path === `/projects/${project.id}` && route.request().method() === "GET")
-      return route.fulfill({ json: project });
+      return route.fulfill({
+        json: options.projectReadiness
+          ? {
+              ...project,
+              repositoryMode: "managed",
+              connectionId: "con_01K0ABCDEFGHJKMNPQRSTVWXYZ",
+              remoteRepositoryId: "repo-1",
+              remoteFullName: "almaro90/aiws",
+              remoteWebUrl: "https://github.com/almaro90/aiws",
+              defaultBranch: "main",
+            }
+          : project,
+      });
+    if (path === `/projects/${project.id}/branches` && options.projectReadiness) {
+      return route.fulfill({ json: [{ name: "main", protected: true }] });
+    }
+    if (path === `/projects/${project.id}/verification-contract`) {
+      if (route.request().method() === "PUT") {
+        const body = route.request().postDataJSON();
+        verificationRevision += 1;
+        verificationCommands = body.commands;
+      }
+      return route.fulfill({
+        json: {
+          projectId: project.id,
+          latestRevision: verificationRevision || null,
+          active: verificationRevision
+            ? {
+                projectId: project.id,
+                revision: verificationRevision,
+                enabled: true,
+                commands: verificationCommands,
+                createdAt: "2026-07-26T10:00:00.000Z",
+              }
+            : null,
+        },
+      });
+    }
+    if (path === `/projects/${project.id}/verification-contract/revisions`) {
+      return route.fulfill({
+        json: verificationRevision
+          ? [
+              {
+                projectId: project.id,
+                revision: verificationRevision,
+                enabled: true,
+                commands: verificationCommands,
+                createdAt: "2026-07-26T10:00:00.000Z",
+              },
+            ]
+          : [],
+      });
+    }
+    if (
+      path === `/projects/${project.id}/verification-contract/disable` &&
+      route.request().method() === "POST"
+    ) {
+      verificationRevision += 1;
+      verificationCommands = [];
+      return route.fulfill({
+        json: { projectId: project.id, latestRevision: verificationRevision, active: null },
+      });
+    }
+    if (path === `/projects/${project.id}/readiness-check` && route.request().method() === "POST") {
+      const depth = route.request().postDataJSON().depth as "standard" | "deep";
+      return route.fulfill({
+        json: {
+          projectId: project.id,
+          depth,
+          checkedAt: "2026-07-26T10:00:00.000Z",
+          durationMs: depth === "deep" ? 240 : 12,
+          ok: true,
+          checks: [
+            {
+              id: "repository",
+              status: "pass",
+              message: "Remote repository is accessible.",
+              details: {},
+            },
+          ],
+        },
+      });
+    }
     if (path === `/projects/${project.id}` && route.request().method() === "PATCH") {
       return route.fulfill({ json: { ...project, ...route.request().postDataJSON() } });
     }
@@ -595,6 +706,16 @@ async function mockApi(
     if (path === `/tasks/${taskId}/transition` && options.draft) {
       return route.fulfill({ json: { ...representedTask, status: "curating", version: 3 } });
     }
+    if (path === `/tasks/${taskId}/transition` && options.readyApprovalPending) {
+      return route.fulfill({
+        json: {
+          ...representedTask,
+          status: "ready",
+          readyApprovalPending: false,
+          version: representedTask.version + 1,
+        },
+      });
+    }
     if (path === `/tasks/${taskId}/automation/resume`) {
       return route.fulfill({
         json: { ...representedTask, automationPaused: false, version: representedTask.version + 1 },
@@ -718,6 +839,120 @@ test("configures Curation independently and requires a profile to activate Imple
   await implementation.focus();
   await page.keyboard.press("Space");
   await expect(page.getByRole("button", { name: "Guardar configuración" })).toBeDisabled();
+});
+
+test("runs standard and explicitly confirmed deep Project Readiness checks", async ({ page }) => {
+  await mockApi(page, { projectReadiness: true });
+  await page.goto(`/projects/${project.id}`);
+
+  const standardRequest = page.waitForRequest(
+    (request) =>
+      request.url().endsWith(`/api/v1/projects/${project.id}/readiness-check`) &&
+      request.method() === "POST",
+  );
+  await page.getByRole("button", { name: "Comprobar", exact: true }).click();
+  expect((await standardRequest).postDataJSON()).toEqual({ depth: "standard" });
+  await expect(page.getByText("Preparado", { exact: true })).toBeVisible();
+  await expect(page.getByText("Remote repository is accessible.")).toBeVisible();
+
+  await page.getByRole("button", { name: "Probe profundo" }).click();
+  await expect(page.getByRole("alertdialog", { name: "Ejecutar probe profundo" })).toBeVisible();
+  const deepRequest = page.waitForRequest(
+    (request) =>
+      request.url().endsWith(`/api/v1/projects/${project.id}/readiness-check`) &&
+      request.method() === "POST" &&
+      request.postDataJSON().depth === "deep",
+  );
+  await page.getByRole("button", { name: "Ejecutar probe" }).click();
+  expect((await deepRequest).postDataJSON()).toEqual({ depth: "deep" });
+  await expect(page.getByText(/Profundo · 240 ms/)).toBeVisible();
+});
+
+test("configures and consumes manual Ready approval without a new Task status", async ({
+  page,
+}) => {
+  await mockApi(page, { projectProfiles: true, projectReadiness: true });
+  await page.goto(`/projects/${project.id}`);
+  const policy = page.getByRole("combobox", { name: "Decisión de Ready" });
+  await policy.click();
+  await page.getByRole("option", { name: "Requiere aprobación manual" }).click();
+  const projectRequest = page.waitForRequest(
+    (request) =>
+      request.url().endsWith(`/api/v1/projects/${project.id}`) && request.method() === "PATCH",
+  );
+  await page.getByRole("button", { name: "Guardar configuración" }).click();
+  expect((await projectRequest).postDataJSON()).toMatchObject({
+    readyPolicy: "manual_approval_required",
+  });
+
+  await page.unrouteAll({ behavior: "wait" });
+  await mockApi(page, { taskStatus: "curating", readyApprovalPending: true });
+  await page.goto(`/tasks/${taskId}`);
+  await expect(page.getByText("Aprobación Ready pendiente")).toBeVisible();
+  await page.getByRole("button", { name: "Aprobar y marcar Ready" }).click();
+  const dialog = page.getByRole("dialog", { name: "Aprobar y marcar Ready" });
+  const approvalRequest = page.waitForRequest(
+    (request) =>
+      request.url().endsWith(`/api/v1/tasks/${taskId}/transition`) && request.method() === "POST",
+  );
+  await dialog.getByRole("button", { name: "Aprobar y marcar Ready" }).click();
+  expect((await approvalRequest).postDataJSON()).toMatchObject({
+    from: "curating",
+    to: "ready",
+  });
+  await expect(page.getByText("Aprobación Ready pendiente")).toHaveCount(0);
+});
+
+test("reviews the latest immutable Spec change before Ready", async ({ page }) => {
+  await mockApi(page, { taskStatus: "curating" });
+  await page.goto(`/tasks/${taskId}`);
+  await openInspectorIfNeeded(page);
+  const summary = page.getByText("Cambios de revisión 1 a 2");
+  await expect(summary).toBeVisible();
+  await summary.click();
+  await expect(page.getByText("- Exportar nombre y correo.")).toBeVisible();
+  await expect(page.getByText("+ Conservar el teléfono en el CSV.")).toBeVisible();
+});
+
+test("creates and disables an immutable Project Verification Contract revision", async ({
+  page,
+}) => {
+  await mockApi(page);
+  await page.goto(`/projects/${project.id}`);
+  await expect(page.getByText("No configurado", { exact: true })).toBeVisible();
+  const commands = [
+    {
+      name: "tests",
+      executable: "bun",
+      args: ["test"],
+      required: true,
+      timeoutSeconds: 300,
+    },
+  ];
+  await page.getByLabel("Comandos JSON").fill(JSON.stringify(commands, null, 2));
+  const replaceRequest = page.waitForRequest(
+    (request) =>
+      request.url().endsWith(`/api/v1/projects/${project.id}/verification-contract`) &&
+      request.method() === "PUT",
+  );
+  await page.getByRole("button", { name: "Guardar nueva revisión" }).click();
+  expect((await replaceRequest).postDataJSON()).toEqual({
+    expectedRevision: null,
+    commands,
+  });
+  await expect(page.getByText("Activo · revision 1")).toBeVisible();
+  await expect(page.getByText("Revision 1 · 1 comandos")).toBeVisible();
+
+  await page.getByRole("button", { name: "Desactivar contrato" }).click();
+  const dialog = page.getByRole("alertdialog", { name: "Desactivar Verification Contract" });
+  const disableRequest = page.waitForRequest(
+    (request) =>
+      request.url().endsWith(`/api/v1/projects/${project.id}/verification-contract/disable`) &&
+      request.method() === "POST",
+  );
+  await dialog.getByRole("button", { name: "Desactivar" }).click();
+  expect((await disableRequest).postDataJSON()).toEqual({ expectedRevision: 1 });
+  await expect(page.getByText("No configurado", { exact: true })).toBeVisible();
 });
 
 test("configures masked ntfy notifications and keeps the mobile layout accessible", async ({
@@ -1510,8 +1745,8 @@ test("keeps Task snapshots stale and refreshes active queries after reconnection
   });
   await page.route("**/api/v1/health", (route) =>
     healthy
-      ? route.fulfill({ json: { status: "ok", version: "0.6.1" } })
-      : route.fulfill({ status: 503, json: { status: "unhealthy", version: "0.6.1" } }),
+      ? route.fulfill({ json: { status: "ok", version: "0.8.0" } })
+      : route.fulfill({ status: 503, json: { status: "unhealthy", version: "0.8.0" } }),
   );
 
   await page.goto(`/tasks/${taskId}`);

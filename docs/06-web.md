@@ -375,3 +375,35 @@ un selector cerrado de organizaciones del snapshot temporal y completa la Connec
 Cada tarjeta usa metadata del provider, comparte importación/repositorios y ofrece Reautorizar
 cuando el estado es `reauthorization_required`. Los estados loading/error/expirado son explícitos y
 el selector conserva labels y navegación por teclado.
+
+## 22. Project Readiness
+
+Project Detail incluye “Comprobar Project” para Projects gestionados. La acción estándar no exige
+confirmación. El probe profundo explica que crea recursos efímeros y exige confirmación. El
+resultado muestra profundidad, duración, instante y todos los checks sin depender solo del color;
+no se conserva al abandonar la vista.
+
+## 23. Ready Policy
+
+Project Automation permite elegir quién decide Ready. Task Detail muestra una llamada de atención
+cuando `readyApprovalPending=true` y ofrece la transición existente “Aprobar y marcar Ready”. La
+UI no crea un estado nuevo ni atribuye la acción a una identidad humana verificable.
+## Verification Contract
+
+Project Detail permite consultar la revisión vigente, revisar historia, reemplazar el conjunto
+completo de comandos y desactivarlo. La UI muestra explícitamente que argv se ejecutará sin shell y
+que cada cambio crea una revisión inmutable.
+## Evidencia de Delivery
+
+Task Detail muestra Verification por comando y Run provenance. Un fallo required ofrece waiver
+explícito con motivo, junto a Full Retry, y explica que el attempt previo permanece fallido e
+inmutable.
+
+## Operación y trazabilidad v0.7–v0.8
+
+La navegación incluye “Necesita atención”. Task Detail permite refrescar manualmente la proyección
+de Delivery y comunica su staleness sin cambiar el estado de Task.
+
+Antes de cerrar el trabajo, Curator Spec muestra un diff acotado entre las dos últimas revisiones
+del Cycle vigente junto a Questions y la acción explícita de Ready. Las métricas permanecen en API
+y CLI; no se añade dashboard Web.

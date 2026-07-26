@@ -202,4 +202,50 @@ describe("GitHub App gateway", () => {
     expect(methods).toContain("PATCH /repos/acme/repo/pulls/7");
     expect(methods.filter((method) => method === "POST /repos/acme/repo/pulls")).toHaveLength(0);
   });
+
+  test("projects merged PR and mixed checks without changing provider semantics", async () => {
+    const gateway = new GitHubAppGateway({
+      appId: "1",
+      appSlug: "aiws-test",
+      privateKey,
+      apiBaseUrl: "https://api.github.test",
+      fetch: async (input) => {
+        const url = new URL(String(input));
+        if (url.pathname.endsWith("/access_tokens"))
+          return Response.json({ token: "ghs_short_lived" });
+        if (url.pathname.endsWith("/pulls/9"))
+          return Response.json({
+            state: "closed",
+            merged_at: "2026-07-26T10:00:00.000Z",
+            draft: false,
+            updated_at: "2026-07-26T10:00:00.000Z",
+          });
+        if (url.pathname.endsWith("/check-runs"))
+          return Response.json({
+            check_runs: [
+              { status: "completed", conclusion: "success" },
+              { status: "completed", conclusion: "failure" },
+              { status: "in_progress", conclusion: null },
+            ],
+          });
+        return new Response("not found", { status: 404 });
+      },
+    });
+    expect(
+      await gateway.observeDelivery(
+        connection,
+        "acme/repo",
+        "7",
+        "https://github.com/acme/repo/pull/9",
+        "a".repeat(40),
+      ),
+    ).toEqual({
+      prState: "merged",
+      checksState: "failed",
+      checksPassed: 1,
+      checksFailed: 1,
+      checksPending: 1,
+      externalUpdatedAt: "2026-07-26T10:00:00.000Z",
+    });
+  });
 });

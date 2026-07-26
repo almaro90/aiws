@@ -10,7 +10,7 @@ RUN bun build apps/runner/src/index.ts --compile --outfile /out/aiws-runner
 
 FROM oven/bun:1.3.11-alpine AS agent
 LABEL org.opencontainers.image.title="AIWS agent" \
-  org.opencontainers.image.version="0.6.1" \
+  org.opencontainers.image.version="0.8.0" \
   org.opencontainers.image.licenses="AGPL-3.0-only"
 RUN apk add --no-cache git ca-certificates bash poppler-utils
 WORKDIR /app
@@ -22,7 +22,7 @@ WORKDIR /workspace
 
 FROM docker:29-cli AS runner-manager
 LABEL org.opencontainers.image.title="AIWS runner manager" \
-  org.opencontainers.image.version="0.6.1" \
+  org.opencontainers.image.version="0.8.0" \
   org.opencontainers.image.licenses="AGPL-3.0-only"
 RUN apk add --no-cache git ca-certificates libstdc++ libgcc poppler-utils
 COPY --from=build /out/aiws-runner /usr/local/bin/aiws-runner
@@ -30,7 +30,7 @@ ENTRYPOINT ["/usr/local/bin/aiws-runner"]
 
 FROM alpine/git:v2.47.2 AS server
 LABEL org.opencontainers.image.title="AIWS" \
-  org.opencontainers.image.version="0.6.1" \
+  org.opencontainers.image.version="0.8.0" \
   org.opencontainers.image.licenses="AGPL-3.0-only"
 
 USER root
