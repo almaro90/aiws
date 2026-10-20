@@ -19,7 +19,7 @@ const config = {
   apiUrl: required("AIWS_API_URL"),
   runnerToken: required("AIWS_RUNNER_TOKEN"),
   workspacesDir: Bun.env.AIWS_WORKSPACES_DIR ?? "/workspaces",
-  image: Bun.env.AIWS_AGENT_IMAGE ?? "aiws-agent:0.8.0",
+  image: Bun.env.AIWS_AGENT_IMAGE ?? "aiws-agent:0.8.1",
   network: Bun.env.AIWS_DOCKER_NETWORK ?? "aiws_default",
   pollMs: integer(Bun.env.AIWS_RUNNER_POLL_MS ?? "15000", 1000),
   proxyPort: integer(Bun.env.AIWS_CREDENTIAL_PROXY_PORT ?? "4317", 1),
@@ -271,7 +271,7 @@ async function recordProvenance(
   const hash = new Bun.CryptoHasher("sha256").update(buildPrompt(assignment)).digest("hex");
   await client
     .recordProvenance(assignment.run.id, {
-      aiwsVersion: "0.8.0",
+      aiwsVersion: "0.8.1",
       codexCliVersion: identity.codexCliVersion,
       model: assignment.agentProfile.model,
       reasoningEffort: assignment.agentProfile.reasoningEffort,

@@ -1,6 +1,6 @@
 # AIWS — Product Requirements Document
 
-> Versión: v0.8
+> Versión: v0.8.1
 > Estado: Hito 31 implementado
 > Fecha: 26 de julio de 2026
 

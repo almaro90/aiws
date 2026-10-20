@@ -305,11 +305,11 @@ export function createApp(options: AppOptions): Hono<{ Variables: Variables }> {
 
   app.get("/api/v1/health", async (context) => {
     try {
-      if (await options.healthCheck()) return context.json({ status: "ok", version: "0.8.0" });
+      if (await options.healthCheck()) return context.json({ status: "ok", version: "0.8.1" });
     } catch {
       // Health responses intentionally do not disclose storage failures.
     }
-    return context.json({ status: "unhealthy", version: "0.8.0" }, 503);
+    return context.json({ status: "unhealthy", version: "0.8.1" }, 503);
   });
   app.get("/api/v1/system/runner", (context) =>
     context.json(

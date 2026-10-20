@@ -259,11 +259,11 @@ describe("managed automation persistence", () => {
       summary: "Published with optional warning.",
     });
     const provenance = await value.runs.recordProvenance(assignment.run.id, {
-      aiwsVersion: "0.8.0",
+      aiwsVersion: "0.8.1",
       codexCliVersion: "codex 1",
       model: "gpt-test",
       reasoningEffort: "medium",
-      agentImage: "aiws-agent:0.8.0",
+      agentImage: "aiws-agent:0.8.1",
       agentImageDigest: "sha256:fixture",
       toolchainIdentity: ["bun"],
       resourceLimits: { cpus: 2 },

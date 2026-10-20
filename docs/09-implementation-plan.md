@@ -593,3 +593,18 @@ configuración secreta en el contrato.
 - [x] Gates finales: format, lint, arquitectura, typecheck, OpenAPI (83 operaciones), 373 tests,
   build, smoke local y 107 E2E pasados (5 omitidos por matriz).
 - [ ] Smoke Docker: interrumpido tras más de 16 minutos bloqueado en `docker build` sin salida.
+
+## Mantenimiento v0.8.1
+
+Actualización de versión posterior al Hito 31: paquetes, API/health, CLI, Web, runner, imágenes,
+bundle y guías sincronizados con v0.8.1. No añade un hito funcional ni cambia endpoints, schemas
+o migraciones. Los gates operativos pendientes de los hitos anteriores conservan su estado.
+
+Verificación del checkout: formato, lint/arquitectura, typecheck, contrato OpenAPI (83 operaciones),
+376 tests unitarios/de integración, build, smoke local y 113 E2E pasados (5 omitidos por matriz).
+El cliente API regenerado y formateado no presenta diferencias. El CLI devuelve `0.8.1`.
+
+Limitaciones del entorno: instalación congelada interrumpida tras un 404 de npm para la dependencia
+ya fijada `source-map@0.6.2`; las verificaciones usan el tooling descargado disponible. Docker
+deniega acceso al daemon, por lo que el smoke con contenedores queda pendiente. El build conserva
+el aviso de chunk Web mayor de 500 kB. Esta actualización local no publica tag, release ni imágenes.
