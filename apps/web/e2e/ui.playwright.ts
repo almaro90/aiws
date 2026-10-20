@@ -333,8 +333,8 @@ async function mockApi(
             ];
     if (path === "/health") {
       return options.healthOffline
-        ? route.fulfill({ status: 503, json: { status: "unhealthy", version: "0.8.0" } })
-        : route.fulfill({ json: { status: "ok", version: "0.8.0" } });
+        ? route.fulfill({ status: 503, json: { status: "unhealthy", version: "0.8.1" } })
+        : route.fulfill({ json: { status: "ok", version: "0.8.1" } });
     }
     if (path === "/system/runner") {
       return route.fulfill({
@@ -1919,8 +1919,8 @@ test("keeps Task snapshots stale and refreshes active queries after reconnection
   });
   await page.route("**/api/v1/health", (route) =>
     healthy
-      ? route.fulfill({ json: { status: "ok", version: "0.8.0" } })
-      : route.fulfill({ status: 503, json: { status: "unhealthy", version: "0.8.0" } }),
+      ? route.fulfill({ json: { status: "ok", version: "0.8.1" } })
+      : route.fulfill({ status: 503, json: { status: "unhealthy", version: "0.8.1" } }),
   );
 
   await page.goto(`/tasks/${taskId}`);

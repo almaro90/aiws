@@ -1,6 +1,6 @@
 # Instalación y operación
 
-Esta guía instala AIWS v0.8.0 desde el bundle publicado. No requiere Bun ni un checkout y no
+Esta guía instala AIWS v0.8.1 desde el bundle publicado. No requiere Bun ni un checkout y no
 instala agentes externos.
 
 ## Requisitos y frontera HTTPS
@@ -14,7 +14,7 @@ la URL HTTPS externa exacta, sin slash final. Los callbacks de providers se deri
 
 ## Instalar
 
-1. Descarga `aiws-deployment-v0.8.0.tar.gz` desde la release, verifica su entrada en
+1. Descarga `aiws-deployment-v0.8.1.tar.gz` desde la release, verifica su entrada en
    `SHA256SUMS` y extráelo en un directorio vacío.
 2. Exporta el namespace y los valores no predeterminados:
 
@@ -43,7 +43,7 @@ la URL HTTPS externa exacta, sin slash final. Los callbacks de providers se deri
 Las cuatro variables anteriores son obligatorias y no tienen fallback en `init-secrets.sh`; un
 valor ausente o vacío detiene el inicializador antes de invocar Docker.
 
-La respuesta de health debe ser `{"status":"ok","version":"0.8.0"}`. Conserva `.env` como secreto.
+La respuesta de health debe ser `{"status":"ok","version":"0.8.1"}`. Conserva `.env` como secreto.
 
 Antes de crear la primera Task de cada repositorio gestionado, sigue el
 [playbook protegido de Project Readiness](project-readiness-pilot.md).

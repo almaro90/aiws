@@ -1,4 +1,4 @@
-# Bundle de despliegue AIWS v0.8.0
+# Bundle de despliegue AIWS v0.8.1
 
 Este bundle instala el stack desde GHCR sin Bun ni checkout. No instala agentes externos.
 

@@ -630,7 +630,7 @@ describe("Hito 3 server", () => {
     try {
       const health = await fixture.app.request("/api/v1/health");
       expect(health.status).toBe(200);
-      expect(await health.json()).toEqual({ status: "ok", version: "0.8.0" });
+      expect(await health.json()).toEqual({ status: "ok", version: "0.8.1" });
       expect(health.headers.get("X-Request-Id")).toStartWith("req_");
       expect(health.headers.get("Content-Security-Policy")).not.toContain("unsafe-eval");
       expect(health.headers.get("X-Content-Type-Options")).toBe("nosniff");
@@ -669,7 +669,7 @@ describe("Hito 3 server", () => {
     try {
       const response = await fixture.app.request("/api/v1/health");
       expect(response.status).toBe(503);
-      expect(await response.json()).toEqual({ status: "unhealthy", version: "0.8.0" });
+      expect(await response.json()).toEqual({ status: "unhealthy", version: "0.8.1" });
     } finally {
       await fixture.close();
     }
